@@ -46,6 +46,8 @@ python plamen.py
 # Or add ~/.claude to PATH and just type: plamen
 ```
 
+> **Having trouble?** Open Claude Code and paste the contents of [`SETUP.md`](SETUP.md) — it contains step-by-step instructions that Claude Code can follow to install everything for you automatically.
+
 ---
 
 ## Table of Contents
