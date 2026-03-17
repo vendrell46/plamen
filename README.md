@@ -12,13 +12,15 @@ Built for **Claude Opus 4.6** (1M context). Works on **Max** (Core/Thorough) and
 
 > **Shell**: All commands use Unix syntax. On **Windows**, use **Git Bash** (included with [Git for Windows](https://git-scm.com)). On **macOS/Linux**, use your regular terminal. If `pip`/`python` don't work, try `pip3`/`python3` instead.
 
-> **Existing Claude Code users**: `~/.claude` will be overwritten. Back it up first:
+> **Why `~/.claude`?** Claude Code reads its configuration, slash commands, agent definitions, and MCP server settings from `~/.claude/`. This is **not configurable** — the repo must be cloned to this exact location for `/plamen` and all pipeline features to work.
+
+> **Existing Claude Code users**: `~/.claude` will be overwritten. Back up your existing config first:
 > ```bash
 > mv ~/.claude ~/.claude.backup
 > ```
 
 ```bash
-# 1. Clone
+# 1. Clone into ~/.claude (required — Claude Code reads config from this path)
 git clone https://github.com/PlamenTSV/plamen.git ~/.claude
 cd ~/.claude
 
