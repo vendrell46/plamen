@@ -215,7 +215,7 @@ The assertion that "proves the bug" succeeded.
 - Are preconditions met?
 - Is the bug mechanism correctly understood?
 
-**After 3 attempts:**
+**After 5 attempts:**
 - If still fails -> FALSE_POSITIVE with documented reasoning
 - Explain why the hypothesis was wrong
 

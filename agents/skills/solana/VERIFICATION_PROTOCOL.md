@@ -752,7 +752,7 @@ The assertion that "proves the bug" succeeded.
 **Attempt 1:** Direct implementation of test strategy from hypothesis.
 **Attempt 2:** Adjust parameters (different amounts, different account states, different instruction ordering).
 **Attempt 3:** Re-examine assumptions (are account constraints correctly modeled? Are PDA seeds correct? Is instruction data serialization correct?).
-**After 3 attempts:** If still fails -> FALSE_POSITIVE with documented reasoning.
+**After 5 attempts:** If still fails -> FALSE_POSITIVE with documented reasoning.
 
 ---
 

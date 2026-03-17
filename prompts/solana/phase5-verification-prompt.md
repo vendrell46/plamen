@@ -88,7 +88,7 @@ Follow `phase5-poc-execution.md`. Compile and run every PoC — a written test w
 3. If an instruction handler signature differs from what you expected, use the ACTUAL signature from the source code.
 4. When tracing code logic, verify the DIRECTION of comparisons (>=, <=, >, <). A >= in an error condition has the opposite meaning from >= in a success condition.
 5. Before claiming a state field is "not updated" by an instruction, grep for ALL writes to that field across the entire codebase. The instruction may update it indirectly via a CPI or helper.
-6. If you cannot compile or run a test after 3 attempts, provide a MANUAL CODE TRACE with exact line numbers and concrete state transitions. Tag as `[CODE-TRACE]` and set verdict to CONTESTED (not CONFIRMED). A code trace with real values is better than a hallucinated test, but it is NOT mechanical proof.
+6. If you cannot compile or run a test after 5 attempts, provide a MANUAL CODE TRACE with exact line numbers and concrete state transitions. Tag as `[CODE-TRACE]` and set verdict to CONTESTED (not CONFIRMED). A code trace with real values is better than a hallucinated test, but it is NOT mechanical proof.
 
 ## REALISTIC PARAMETER VALIDATION
 Substitute ACTUAL program constants (basis points, fees, thresholds, CU limits).

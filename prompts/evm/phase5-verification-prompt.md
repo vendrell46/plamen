@@ -1,7 +1,11 @@
 # Phase 5: Verification Prompt Template
 
 > **Usage**: Orchestrator reads this file and spawns verification agents.
-> Replace placeholders `{SCRATCHPAD}`, `{HYPOTHESIS_ID}`, `{LOCATION}`, etc. with actual values.
+> Replace placeholders `{SCRATCHPAD}`, `{HYPOTHESIS_ID}`, `{LOCATION}`, `{PROJECT_ROOT}`, etc. with actual values.
+
+> **Environment**: Before running `forge build` or `forge test`, agents MUST:
+> 1. `cd {PROJECT_ROOT}` — forge requires `foundry.toml` in the working directory
+> 2. If `forge` is not found: prefix with `export PATH="$HOME/.foundry/bin:$HOME/.cargo/bin:$PATH" &&`
 
 ---
 
@@ -91,7 +95,7 @@ Follow `phase5-poc-execution.md`. Compile and run every PoC — a written test w
 3. If a function signature differs from what you expected, use the ACTUAL signature from the source code.
 4. When tracing code logic, verify the DIRECTION of comparisons (>=, <=, >, <). A >= in a revert condition has the opposite meaning from >= in a success condition.
 5. Before claiming a state variable is "not updated" by a function, grep for ALL writes to that variable across the entire codebase. The function may update it indirectly via an internal call.
-6. If you cannot compile or run a test after 3 attempts, provide a MANUAL CODE TRACE with exact line numbers and concrete state transitions. Tag as `[CODE-TRACE]` and set verdict to CONTESTED (not CONFIRMED). A code trace with real values is better than a hallucinated PoC, but it is NOT mechanical proof.
+6. If you cannot compile or run a test after 5 attempts, provide a MANUAL CODE TRACE with exact line numbers and concrete state transitions. Tag as `[CODE-TRACE]` and set verdict to CONTESTED (not CONFIRMED). A code trace with real values is better than a hallucinated PoC, but it is NOT mechanical proof.
 
 ## REALISTIC PARAMETER VALIDATION
 Substitute ACTUAL contract constants (BPS, fees, thresholds).

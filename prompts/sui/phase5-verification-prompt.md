@@ -94,7 +94,7 @@ Follow `phase5-poc-execution.md`. Compile and run every PoC — a written test w
 3. If a function signature differs from what you expected, use the ACTUAL signature from the source code.
 4. When tracing code logic, verify the DIRECTION of comparisons (>=, <=, >, <). A >= in an abort condition has the opposite meaning from >= in a success condition.
 5. Before claiming a struct field is 'not updated' by a function, grep for ALL writes to that field across the entire codebase. The function may update it indirectly via an internal call.
-6. If you cannot compile or run a test after 3 attempts, provide a MANUAL CODE TRACE with exact line numbers and concrete state transitions. Tag as `[CODE-TRACE]` and set verdict to CONTESTED (not CONFIRMED). A code trace with real values is better than a hallucinated test, but it is NOT mechanical proof.
+6. If you cannot compile or run a test after 5 attempts, provide a MANUAL CODE TRACE with exact line numbers and concrete state transitions. Tag as `[CODE-TRACE]` and set verdict to CONTESTED (not CONFIRMED). A code trace with real values is better than a hallucinated test, but it is NOT mechanical proof.
 
 ## REALISTIC PARAMETER VALIDATION
 Substitute ACTUAL module constants (basis points, fees, thresholds, capability guards).
@@ -129,7 +129,7 @@ on Sui — all verification uses Move unit tests with `test_scenario`.
 fun test_hypothesis_N() {
     use sui::test_scenario;
     let admin = @0xAD;
-    let attacker = @0xATK;
+    let attacker = @0xAA;
     let mut scenario = test_scenario::begin(admin);
 
     // 1. SETUP — publish packages, create shared objects

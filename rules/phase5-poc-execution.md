@@ -50,7 +50,7 @@ If execution was not attempted, explain why (no build environment, no test frame
 |----------|-------|------|------|
 | **EVM (Foundry)** | `forge build` | `forge test --match-test test_{ID} -vvv` | `forge test --match-test testFuzz_{ID} -vvv` (use `bound()` inputs) |
 | **EVM (Hardhat only)** | `npx hardhat compile` | `npx hardhat test --grep "{ID}"` | Skip fuzz variant (no native invariant fuzzer) |
-| **Solana (Anchor)** | `cargo build-sbf` or `anchor build` | `cargo test test_{id} -- --nocapture` | Trident (preferred): `trident fuzz run fuzz_0`; fallback: proptest with bounded inputs |
+| **Solana (Anchor)** | `cargo build-sbf` or `anchor build` | `cargo test test_{id} -- --nocapture` | Trident (preferred): `trident fuzz run-hfuzz fuzz_0`; fallback: proptest with bounded inputs |
 | **Solana (native)** | `cargo build-sbf` | `cargo test test_{id} -- --nocapture` | proptest with bounded inputs, or boundary-value parameterized tests |
 | **Aptos** | `aptos move compile` | `aptos move test --filter test_{id}` | No built-in fuzzer — write boundary-value parameterized tests (`#[test]` with multiple concrete value sets covering min/mid/max) |
 | **Sui** | `sui move build` | `sui move test --filter test_{id}` | No built-in fuzzer — write boundary-value parameterized tests (`#[test]` with multiple concrete value sets covering min/mid/max) |
@@ -100,9 +100,9 @@ If the variant passes → report the working variant. After 2+ variant failures 
 # Initialize (if not already done — creates trident-tests/ scaffolding)
 trident init
 # Run fuzz target (default: fuzz_0)
-HFUZZ_RUN_ARGS="-t 10 -N 5000 -Q" trident fuzz run fuzz_0
+HFUZZ_RUN_ARGS="-t 10 -N 5000 -Q" trident fuzz run-hfuzz fuzz_0
 # Debug a crash file
-trident fuzz run-debug fuzz_0 trident-tests/fuzz_tests/fuzzing/fuzz_0/cr1.fuzz
+trident fuzz debug-hfuzz fuzz_0 trident-tests/fuzz_tests/fuzzing/fuzz_0/cr1.fuzz
 ```
 Trident generates handler scaffolding from the program IDL. The verifier customizes the generated `fuzz_instructions.rs` to target the specific finding's instruction sequence, adds invariant checks, and runs the campaign.
 

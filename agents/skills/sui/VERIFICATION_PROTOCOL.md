@@ -154,11 +154,11 @@ module exploit::test_shared_object_mutation {
         };
 
         // === RECORD BEFORE STATE ===
+        let value_before;
         test_scenario::next_tx(&mut scenario, attacker);
         {
             let pool = test_scenario::take_shared<target_module::Pool>(&scenario);
-            let value_before = target_module::get_balance(&pool);
-            // Log or store value_before for comparison
+            value_before = target_module::get_balance(&pool);
             std::debug::print(&value_before);
             test_scenario::return_shared(pool);
         };
@@ -570,7 +570,7 @@ The assertion that "proves the bug" succeeded.
 - Are type parameters correct (generic type instantiation)?
 - Does the function require a `Clock` or `TxContext` argument not provided?
 
-**After 3 attempts:** If still fails -> FALSE_POSITIVE with documented reasoning.
+**After 5 attempts:** If still fails -> FALSE_POSITIVE with documented reasoning.
 
 ---
 
