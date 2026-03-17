@@ -105,6 +105,15 @@ MODES = {
 
 # ── Dependency check ─────────────────────────────────────────
 
+def _python_bin() -> str:
+    """Return the name of the Python binary available on this system."""
+    if shutil.which("python"):
+        return "python"
+    if shutil.which("python3"):
+        return "python3"
+    return "python"  # fallback — will fail with a clear error
+
+
 def _python_extra_paths() -> list:
     """Discover Python install directories on Windows (any version)."""
     if sys.platform != "win32":
@@ -176,7 +185,7 @@ def check_dependencies() -> bool:
     # ── Probe all tools ─────────────────────────────────────
     required = [
         ("claude",  _find_bin("claude")),
-        ("python",  _find_bin("python", _python_extra_paths())),
+        ("python",  _find_bin("python", _python_extra_paths()) or _find_bin("python3")),
         ("npx",     _find_bin("npx")),
         ("npm",     _find_bin("npm")),
         ("git",     _find_bin("git")),
@@ -464,11 +473,12 @@ def _aptos_cmds():
     if sys.platform == "darwin" and _has_brew():
         return ['brew install aptos']
     # Python installer works on all platforms (Windows, Linux, macOS)
-    return ['python -c "'
+    py = _python_bin()
+    return [f'{py} -c "'
             'import urllib.request,tempfile,os,subprocess;'
             "p=os.path.join(tempfile.gettempdir(),'install_aptos.py');"
             "urllib.request.urlretrieve('https://aptos.dev/scripts/install_cli.py',p);"
-            "subprocess.run(['" + ("python" if sys.platform == "win32" else "python3") + "',p])"
+            f"subprocess.run(['{py}',p])"
             '"']
 
 
@@ -665,13 +675,14 @@ def _build_rag_db(w):
         w(f"  {_C_RED}unified-vuln-db not found at {vuln_db_dir}{_RST}\n")
         return False
 
+    py = _python_bin()
     steps = [
         ("Solodit — live API",       "~2 min",
-         f'cd "{vuln_db_dir}" && python -m unified_vuln.indexer index -s solodit --max-pages 10'),
+         f'cd "{vuln_db_dir}" && {py} -m unified_vuln.indexer index -s solodit --max-pages 10'),
         ("DeFiHackLabs — local",     "~1 min",
-         f'cd "{vuln_db_dir}" && python -m unified_vuln.indexer index -s defihacklabs'),
+         f'cd "{vuln_db_dir}" && {py} -m unified_vuln.indexer index -s defihacklabs'),
         ("Immunefi — writeups",      "~30s",
-         f'cd "{vuln_db_dir}" && python -m unified_vuln.indexer index -s immunefi'),
+         f'cd "{vuln_db_dir}" && {py} -m unified_vuln.indexer index -s immunefi'),
     ]
 
     for label, est, cmd in steps:
@@ -695,7 +706,7 @@ def _quick_check_required() -> bool:
     """Silent check for required tools. Returns True if all present."""
     for name in ("claude", "python", "npx", "npm", "git"):
         if name == "python":
-            if not _find_bin("python", _python_extra_paths()):
+            if not (_find_bin("python", _python_extra_paths()) or _find_bin("python3")):
                 return False
         elif not _find_bin(name):
             return False
