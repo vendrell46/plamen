@@ -341,7 +341,7 @@ Spawn as independent agents (1 depth budget slot each). Used when a concern need
 
 ## MCP Servers
 
-Plamen uses 9 MCP servers. 4 are bundled in `custom-mcp/`, 2 are git submodules, 3 are npm packages.
+Plamen uses 9 MCP servers configured in `mcp.json`. 2 are bundled in `custom-mcp/`, 2 are git submodules, 5 are npm packages. Two additional bundled libraries (`solodit-scraper`, `defihacklabs-rag`) serve as data sources for the RAG database.
 
 ### Bundled (custom-mcp/)
 
@@ -479,6 +479,8 @@ The startup screen runs a dependency check showing which tools are available.
 
 Copy `mcp.json.example` to `mcp.json` and configure:
 
+The example below shows a subset. Copy `mcp.json.example` for the full 9-server configuration including `solana-fender`, `farofino`, and `memory`.
+
 ```json
 {
   "mcpServers": {
@@ -494,7 +496,7 @@ Copy `mcp.json.example` to `mcp.json` and configure:
     "foundry-suite": {
       "command": "npx",
       "args": ["-y", "@pranesh.asp/foundry-mcp-server"],
-      "env": { "RPC_URL": "https://eth.llamarpc.com" }
+      "env": { "RPC_URL": "YOUR_RPC_URL" }
     },
     "evm-chain-data": {
       "command": "npx",
@@ -660,7 +662,7 @@ You can also skip the wizard with arguments:
 |---|---|---|
 | **First time** | Use this — Setup installs tools + builds RAG | Need tools already installed |
 | **Cost estimate** | Shows token/cost estimate before launch | No estimate |
-| **Dependency check** | Full toolchain box with install option | No check |
+| **Dependency check** | Full toolchain box with install option | Basic toolchain probe |
 | **Daily use** | Quick CLI: `plamen core .` | Quick command: `/plamen core .` |
 | **Already in Claude** | Opens new Claude session | Uses current session |
 
@@ -804,9 +806,10 @@ Findings carry evidence tags that determine confidence scoring:
 | `[POC-PASS]` | 1.0 | PoC compiled, executed, assertions passed |
 | `[POC-FAIL]` | — | PoC executed but assertions failed |
 | `[CODE]` | 0.8 | Code-level evidence with specific locations |
-| `[CODE-TRACE]` | 0.6 | Manual trace with concrete values, no execution (caps at CONTESTED without real constants) |
+| `[CODE-TRACE]` | 0.6 | Manual trace with concrete values, no execution (caps at CONTESTED) |
 | `[DOC]` | 0.4 | Documentation-based evidence |
 | `[MOCK]` | 0.2 | Mock-based (not production-representative) |
+| `[EXT-UNV]` | 0.1 | External/unverified claim |
 
 ---
 
