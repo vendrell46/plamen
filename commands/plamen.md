@@ -319,17 +319,30 @@ When `MODE == light`, the orchestrator applies these overrides:
 
 ## Phase 1: Reconnaissance
 
-### Step 1: Spawn Recon Agent
+### Step 1: Read Recon Prompt
 **Read full prompt from**: `~/.claude/prompts/{LANGUAGE}/phase1-recon-prompt.md`
 
 Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`, `{network_if_provided}`, `{scope_file_if_provided}`, `{scope_notes_if_provided}`
 
-> **Note**: Recon includes RAG meta-buffer (TASK 0), fork ancestry research, production verification (TASK 11 — MANDATORY), static analysis fallback chain, and template recommendations with BINDING MANIFEST.
+### Step 1b: Spawn 4 Recon Agents (MANDATORY SPLIT)
 
-### After Recon Returns
+**Do NOT spawn a single monolithic recon agent.** Read the ORCHESTRATOR SPLIT DIRECTIVE in the prompt header and split into 4 agents. The prompt file may contain 4 separate `Task()` blocks (Solana/Aptos/Sui) or 1 monolithic block with a split directive (EVM) — in either case, split as follows:
+
+| Agent | Spawn | Model | Await? |
+|-------|-------|-------|--------|
+| **1A (RAG)** | `run_in_background: true` | sonnet | **NO** — fire-and-forget |
+| **1B (Docs + External)** | foreground | opus (Core/Thorough) or sonnet (Light) | YES |
+| **2 (Build + Slither)** | foreground | sonnet | YES |
+| **3 (Patterns + Surface)** | foreground | opus (Core/Thorough) or sonnet (Light) | YES |
+
+**Agent 1A is FIRE-AND-FORGET**: spawn in background, never block on it. If it hasn't returned when 1B/2/3 finish, write fallback `meta_buffer.md` and proceed.
+
+**Light mode override**: Spawn only 2 merged agents (both sonnet, both foreground). Skip RAG (Agent 1A) and fork ancestry entirely per Light Mode Orchestration override #2.
+
+### After Agents 1B, 2, 3 Return
 1. Verify artifacts exist: `ls {scratchpad}/`
 2. Read: `recon_summary.md`, `template_recommendations.md`, `attack_surface.md`
-3. **RAG resilience check**: If `meta_buffer.md` does not exist or is empty:
+3. **RAG resilience check**: If `meta_buffer.md` does not exist or is empty (Agent 1A still running or failed):
    - Spawn lightweight RAG-retry agent (haiku, <2 min, 3 queries only):
      1. get_common_vulnerabilities(protocol_type)
      2. get_attack_vectors(primary_pattern)
