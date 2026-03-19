@@ -20,7 +20,7 @@ The setup wizard detects your OS and installed tools, then offers to install mis
 | Tool | Version | Purpose | Install |
 |------|---------|---------|---------|
 | Claude Code | latest | AI runtime | `npm install -g @anthropic-ai/claude-code` |
-| Python | 3.11+ | MCP servers, wrapper | [python.org](https://python.org) |
+| Python | 3.11-3.12 (recommended) | MCP servers, wrapper | [python.org](https://python.org) |
 | Node.js | 18+ | npm-based MCP servers | [nodejs.org](https://nodejs.org) |
 | Git | any | Submodules, version control | [git-scm.com](https://git-scm.com) |
 | Rust | stable | Compiling security tools | [rustup.rs](https://rustup.rs) |
@@ -204,8 +204,25 @@ ChromaDB loads the embedding model on first use (1-5 minutes). This is normal. T
 ### `No IDL files found`
 Run `anchor build` or `cargo build-sbf` first to generate IDL files before `trident init`.
 
+### Python 3.13+ compatibility issues
+PyTorch, sentence-transformers, and Slither may not fully support Python 3.13+. If you encounter import errors or segfaults during RAG indexing, use Python 3.11 or 3.12:
+```bash
+# macOS (Homebrew)
+brew install python@3.12
+python3.12 -m venv ~/.plamen-venv && source ~/.plamen-venv/bin/activate
+cd ~/.plamen && python plamen.py install
+
+# Ubuntu/Debian
+sudo apt install python3.12 python3.12-venv
+python3.12 -m venv ~/.plamen-venv && source ~/.plamen-venv/bin/activate
+cd ~/.plamen && python plamen.py install
+```
+
 ### Slither install fails on Python 3.13+
-Slither requires Python 3.11 or 3.12. If your default Python is 3.13+, use a virtualenv with 3.12: `python3.12 -m venv .venv && source .venv/bin/activate && pip install slither-analyzer`.
+Slither requires Python 3.11 or 3.12. If your default Python is 3.13+, use a virtualenv with 3.12 (see above).
+
+### `externally-managed-environment` error on pip install
+macOS (Homebrew Python) and Ubuntu 23.04+ block bare `pip install`. Plamen handles this automatically by detecting the `EXTERNALLY-MANAGED` marker and adding `--break-system-packages`. If you still hit this error running manual pip commands, add `--break-system-packages` or use a virtualenv.
 
 ### `error: failed to load manifest for workspace member programs/*`
 Anchor CLI < 0.32 glob issue on Windows. See [Solana > Windows](#solana-platform-notes) above.
