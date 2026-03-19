@@ -1749,7 +1749,7 @@ def launch_claude(mode: str, target: str, docs: str,
             parts.append(f"ground_truth: {docs}")
         prompt = " ".join(parts)
     else:
-        parts = [f"/plamen {mode} {target}"]
+        parts = [f"/plamen {mode} {target} wrapper-launch"]
         if docs:
             parts.append(f"docs: {docs}")
         else:
@@ -1781,6 +1781,22 @@ def main():
     # Fast path: CLI args skip the interactive UI
     if len(sys.argv) > 1:
         arg = sys.argv[1].lower()
+
+        # ── Estimate subcommand (for /plamen command) ────────
+        if arg == "--estimate":
+            import json as _json
+            est_target = sys.argv[2] if len(sys.argv) > 2 else "."
+            est_mode = sys.argv[3] if len(sys.argv) > 3 else "core"
+            est_scope = ""
+            est_notes = ""
+            for i, a in enumerate(sys.argv):
+                if a == "--scope" and i + 1 < len(sys.argv):
+                    est_scope = sys.argv[i + 1]
+                if a == "--scope-notes" and i + 1 < len(sys.argv):
+                    est_notes = sys.argv[i + 1]
+            r = estimate_cost(est_target, est_mode, est_scope, est_notes)
+            print(_json.dumps(r))
+            return
 
         # ── Install subcommand ───────────────────────────────
         if arg in ("install", "setup"):

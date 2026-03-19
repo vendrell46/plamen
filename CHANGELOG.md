@@ -9,7 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - **Scope file estimation**: Parser now handles markdown tables (`| File.sol | 300 |`), bullet lists (`- contracts/File.sol`), and bare paths (`File.sol`) — previously only bare paths worked, causing "~0 lines, 0 files" for markdown-formatted scope files
-- **`/plamen` scope parsing**: Added explicit regex instruction for scope file parsing in the `/plamen` command to match `plamen.py` behavior
+- **Cost estimate consistency**: `/plamen` command now calls `plamen.py --estimate` instead of calculating inline — single source of truth, no more divergent numbers between wrapper and command
+- **Double confirmation prompt**: Wrapper now passes `wrapper-launch` flag; `/plamen` skips Step 0d (cost estimate + confirmation) when launched from the wrapper since the user already confirmed
+
+### Added
+- `plamen.py --estimate` CLI flag: outputs JSON cost estimate for use by `/plamen` command
 
 ## [1.0.3] - 2026-03-19
 

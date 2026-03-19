@@ -15,7 +15,9 @@ description: "Launch Plamen security audit pipeline. Usage: /plamen [core|thorou
 - If it contains `scope:` followed by a file path, set `SCOPE_FILE` to that path. The file should list in-scope contracts/files.
 - If it contains `notes:` followed by text (up to end of arguments or next known prefix), set `SCOPE_NOTES` to that text. Passed to recon as additional audit context (e.g., "focus on vault module, ignore governance").
 - If it contains `proven-only:` followed by `true` (or just `proven-only: true`), set `PROVEN_ONLY = true`. When enabled, findings whose best evidence is `[CODE-TRACE]` (no executed PoC or fuzzer counterexample) are capped at Low severity in the report. Default: false.
-- If MODE, PROJECT_PATH, DOCS_PATH (or nodocs), AND `proven-only:` are all resolved, skip the entire wizard — jump directly to "Step 0d: Cost Estimate + Launch Confirmation".
+- If it contains `wrapper-launch`, set `LAUNCHED_FROM_WRAPPER = true`. The user already confirmed the launch in the terminal wrapper — skip Step 0d (cost estimate + confirmation) entirely and jump directly to Step 1 (language detection). Do NOT show a second confirmation prompt.
+- If MODE, PROJECT_PATH, DOCS_PATH (or nodocs), AND `proven-only:` are all resolved AND `wrapper-launch` is present, skip the ENTIRE wizard — jump directly to Step 1 (language detection). No cost estimate, no confirmation.
+- If MODE, PROJECT_PATH, DOCS_PATH (or nodocs), AND `proven-only:` are all resolved but NO `wrapper-launch`, skip the wizard — jump to "Step 0d: Cost Estimate + Launch Confirmation".
 - If MODE, PROJECT_PATH, and DOCS_PATH (or nodocs) are resolved but `scope:` and `proven-only:` are NOT specified, skip to Step 0c.5 (scope selection).
 - If MODE is set but docs status is unknown (no `docs:` and no `nodocs`), skip to Step 0c only.
 - If `$ARGUMENTS` contains "compare", jump directly to the compare flow (Step 0e). If it also contains `report:` followed by a file path, set `REPORT_PATH`. If it contains `ground_truth:` followed by a file path, set `GROUND_TRUTH_PATH`. If both are set, skip the interactive file selection in Step 0e and proceed directly.
@@ -207,103 +209,36 @@ If "Yes", set `PROVEN_ONLY = true`.
 
 ### Step 0d: Cost Estimate + Launch Confirmation
 
-Before starting the pipeline, compute a cost estimate and show it to the user for confirmation.
+Before starting the pipeline, get a cost estimate by calling `plamen.py`'s `estimate_cost()` function directly via Bash. Do NOT calculate costs manually — the Python function is the single source of truth.
 
-#### Step 0d.1: Count Source Files
+#### Step 0d.1: Get Estimate
 
-Run via Bash (single command):
+Run via Bash:
 
 ```bash
-find "{PROJECT_PATH}" -type f \( -name '*.sol' -o -name '*.rs' -o -name '*.move' \) \
-  -not -path '*/node_modules/*' -not -path '*/.git/*' -not -path '*/cache/*' \
-  -not -path '*/artifacts/*' -not -path '*/.anchor/*' -not -path '*/.aptos/*' \
-  -not -path '*/typechain/*' -not -path '*/typechain-types/*' -not -path '*/coverage/*' \
-  -not -path '*/__pycache__/*' \
-  | while read -r f; do
-    # Skip root-level dirs: lib, target, build, out, test, tests, mock, mocks,
-    # script, deploy, migrations, flatten, docs, doc
-    rel="${f#{PROJECT_PATH}/}"
-    top="${rel%%/*}"
-    case "$top" in lib|target|build|out|test|tests|mock|mocks|script|deploy|migrations|flatten|docs|doc) continue;; esac
-    echo "$f"
-  done | xargs wc -l 2>/dev/null | tail -1
+python ~/.claude/plamen.py --estimate "{PROJECT_PATH}" {MODE} {SCOPE_ARGS}
 ```
 
-If `SCOPE_FILE` is set, filter: only count files whose basename (or basename without extension) appears in the scope file. Scope files can be in any format — extract `.sol`/`.rs`/`.move` filenames using regex `[\w/\\.-]+\.(?:sol|rs|move)` to handle bare paths (`src/Vault.sol`), markdown tables (`| Vault.sol | 300 |`), and bullet lists (`- contracts/Vault.sol`). If `SCOPE_NOTES` is set and no scope file, extract capitalized words (e.g., "Vault", "Router") and match against basenames.
+Where `{SCOPE_ARGS}` is:
+- `--scope "{SCOPE_FILE}"` if SCOPE_FILE is set
+- `--scope-notes "{SCOPE_NOTES}"` if SCOPE_NOTES is set (and no scope file)
+- omitted if neither is set
 
-Extract `TOTAL_FILES` (number of matching files) and `TOTAL_LINES` (total line count). If the project path is a home directory or system root, set both to 0 and skip the estimate.
+If `plamen.py --estimate` is not available (old version), use this fallback:
 
-#### Step 0d.2: Compute Cost Estimate
-
-Use these formulas (matching `plamen.py`'s `estimate_cost()`):
-
-**Constants:**
-```
-SRC_TOK        = TOTAL_LINES * 4       (≈4 tokens per line of code)
-PROMPT_BASE    = 8,000                  (system prompt + CLAUDE.md)
-SKILL_AVG      = 8,000                  (average skill file tokens)
-ARTIFACT_SMALL = 5,000                  (scratchpad summaries)
-ARTIFACT_LARGE = 20,000                 (full inventory/findings)
-ORCH_BASE      = PROMPT_BASE + 15,000   (orchestrator context)
-```
-
-**Agent token model** — each agent is a multi-turn conversation where every turn re-sends full prior context:
-```
-agent_input(base, turns, growth=4000) = turns * base + turns*(turns-1)/2 * growth
-agent_output(turns) = turns * 3000
+```bash
+python -c "
+import sys; sys.path.insert(0, '$HOME/.claude')
+from plamen import estimate_cost
+import json
+r = estimate_cost('{PROJECT_PATH}', '{MODE}', scope_file='{SCOPE_FILE}', scope_notes='{SCOPE_NOTES}')
+print(json.dumps(r))
+"
 ```
 
-**Breadth agent count:**
-```
-bc = 2           if TOTAL_LINES < 2000
-bc = 4           if TOTAL_LINES < 5000
-bc = min(7, 3 + TOTAL_LINES / 3000)   otherwise
-```
+Parse the JSON output to get: `files`, `lines`, `agents`, `input_mtok`, `output_mtok`, `api_cost`, `pct_pro`, `pct_x5`, `pct_x20`, `scoped`.
 
-**Estimated findings and verifiers:**
-```
-est_findings = bc * 5
-vc = clamp(est_findings / 3, min=3, max=10)
-```
-
-**Pipeline stages by mode:**
-
-| Mode | Stages (name, count, model, base_context, turns) |
-|------|---|
-| **Light** | Recon(2,sonnet,PROMPT_BASE+SRC_TOK*0.5+ARTIFACT_SMALL,10), Breadth(min(3,bc),sonnet,PROMPT_BASE+SKILL_AVG+SRC_TOK*0.7+ARTIFACT_LARGE,10), Inventory(1,sonnet,PROMPT_BASE+ARTIFACT_LARGE*2,8), Depth_merged(2,sonnet,PROMPT_BASE+SKILL_AVG*2+SRC_TOK*0.4+ARTIFACT_LARGE,10), Scanner+Sweep(2,sonnet,PROMPT_BASE+SRC_TOK*0.3+ARTIFACT_LARGE,8), Chain(1,sonnet,PROMPT_BASE+ARTIFACT_LARGE*2,8), Verification(vc_light,sonnet,PROMPT_BASE+SKILL_AVG+SRC_TOK*0.25+ARTIFACT_SMALL,12), Report(1,sonnet,PROMPT_BASE+ARTIFACT_LARGE*2,8), Assembler(1,haiku,PROMPT_BASE+ARTIFACT_LARGE*2,6), Orchestrator(1,sonnet,ORCH_BASE,20) |
-| **Core** | Recon_opus(2,opus,...,12), Recon_sonnet(2,sonnet,...,10), Breadth(bc,opus,...,12), Inventory(1,sonnet,...,8), Sem.Invariants(1,sonnet,...,10), Depth_opus(2,opus,...,12), Depth_sonnet(2,sonnet,...,10), Scanners(3,sonnet,...,8), ValidationSweep(1,sonnet,...,8), Niche(3,sonnet,...,8), RAG+Scoring(3,haiku,...,6), ChainAnalysis(2,opus,...,8), Verification(vc,opus,...,14), Report_opus(1,opus,...,8), Report_sonnet(2,sonnet,...,8), Report_haiku(2,haiku,...,6), Orchestrator(1,opus,ORCH_BASE,25) |
-| **Thorough** | All Core stages PLUS: Re-scan(3,sonnet,...,10), Per-contract(min(8,max(2,TOTAL_LINES/500)),sonnet,...,8), Sem.Pass2(1,sonnet,...,8), DepthIter2-3(3,sonnet,...,8), Inv.Fuzz(1,sonnet,...,10), DesignStress(1,sonnet,...,8), ExtraVerify(2,sonnet,...,10), Skeptic(max(2,est_findings*0.3),sonnet,...,10), Judge(max(1,est_high_crit/3),haiku,...,4), Orch.extra(1,opus,ORCH_BASE,15) |
-
-(Use the same base_context formulas as Light/Core above — see `plamen.py` lines 1097-1163 for exact values.)
-
-**Compute totals per model:**
-```
-For each stage: compute agent_input(base, turns) and agent_output(turns), multiply by count
-Sum input/output per model (opus, sonnet, haiku)
-total_agents = sum of all stage counts
-input_mtok = total_input / 1,000,000
-output_mtok = total_output / 1,000,000
-```
-
-**API cost** (current Anthropic pricing):
-```
-Opus:   $5/M input,  $25/M output
-Sonnet: $3/M input,  $15/M output
-Haiku:  $1/M input,   $5/M output
-
-api_cost = sum over models: (model_input/1M * input_price) + (model_output/1M * output_price)
-```
-
-**Plan usage %** (calibrated from empirical data — a Thorough audit on ~5000 lines uses ~9% of Max x20):
-```
-ref_tokens = compute total input for the reference 5000-line Thorough audit (use ref_stages from plamen.py lines 1196-1217)
-pct_x20 = (total_input / ref_tokens) * 9.0
-pct_x5  = pct_x20 * 4
-pct_pro = pct_x5 * 2.5   (if Light mode)
-pct_pro = pct_x5 * 5     (if Core or Thorough)
-```
-
-#### Step 0d.3: Display Summary + Warnings
+#### Step 0d.2: Display Summary + Warnings
 
 Output as a formatted markdown block:
 
@@ -319,8 +254,8 @@ Output as a formatted markdown block:
 | **Scope** | {SCOPE_FILE basename or "full project"} |  ← only if set
 | **Notes** | {SCOPE_NOTES} |  ← only if set
 | **Proven-only** | ON — unproven findings capped at Low |  ← only if true
-| **Codebase** | ~{TOTAL_LINES} lines, {TOTAL_FILES} files{" (scoped)" if scoped} |
-| **Agents** | ~{total_agents} |
+| **Codebase** | ~{lines} lines, {files} files{" (scoped)" if scoped} |
+| **Agents** | ~{agents} |
 | **Tokens** | ~{input_mtok}M in / ~{output_mtok}M out |
 | **API cost** | ~${api_cost} USD |
 | **Pro** | ~{pct_pro}% of weekly allowance |  ← with severity indicator
