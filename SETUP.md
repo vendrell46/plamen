@@ -12,18 +12,23 @@ Please set up Plamen (Web3 Security Auditor) on my machine. Follow these steps e
 Check if the required tools are installed. Run these checks and report what's missing:
 
 ```bash
-python3 --version || python --version    # need 3.11+
+claude --version                         # Claude Code CLI
+python3 --version || python --version    # need 3.11-3.12 (3.13+ has compatibility issues)
+pip3 --version || pip --version          # Python package manager
 node --version                           # need 18+
 npx --version
 git --version
 ```
 
 If any are missing:
-- **Python**: Download from https://python.org (3.11 or later). On macOS: `brew install python@3.12`. On Ubuntu: `sudo apt install python3.12 python3.12-venv python3-pip`.
+- **Claude Code**: `npm install -g @anthropic-ai/claude-code` (see https://docs.anthropic.com/en/docs/claude-code)
+- **Python**: Download from https://python.org (3.11 or 3.12 recommended). On macOS: `brew install python@3.12`. On Ubuntu: `sudo apt install python3.12 python3.12-venv python3-pip`.
+- **pip**: Usually included with Python. If missing: `python3 -m ensurepip --upgrade` or on Ubuntu: `sudo apt install python3-pip`.
 - **Node.js**: Download from https://nodejs.org (LTS). On macOS: `brew install node`. On Ubuntu: `curl -fsSL https://deb.nodesource.com/setup_lts.x | sudo -E bash - && sudo apt install -y nodejs`.
 - **Git**: Download from https://git-scm.com. On macOS: `brew install git`. On Ubuntu: `sudo apt install git`.
+- **macOS only**: Xcode Command Line Tools (needed to compile C++ dependencies): `xcode-select --install`
 
-Do NOT proceed to Step 1 until all four tools are available.
+Do NOT proceed to Step 1 until all tools are available.
 
 ## Step 0b: Windows — Enable Developer Mode
 

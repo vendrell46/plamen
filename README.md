@@ -8,11 +8,13 @@ Orchestrates 15-95 AI agents across 8 phases to produce audit reports with verif
 
 ## Prerequisites
 
-[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), [Python 3.11+](https://python.org), [Node.js 18+](https://nodejs.org), [Git](https://git-scm.com)
+[Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code), [Python 3.11-3.12](https://python.org) + pip, [Node.js 18+](https://nodejs.org), [Git](https://git-scm.com)
 
-> The install step below checks for these and tells you what's missing. Per-language tools (Foundry, Solana CLI, etc.) are installed automatically via `plamen setup`.
-
-> **Windows users**: Enable Developer Mode before installing (required for symlinks). Settings > System > For Developers > toggle ON. Or run in admin PowerShell: `reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock /v AllowDevelopmentWithoutDevLicense /t REG_DWORD /d 1 /f`
+> **macOS**: Also run `xcode-select --install` (needed for C++ dependency compilation).
+>
+> **Windows**: Enable Developer Mode before installing (required for symlinks). Settings > System > For Developers > toggle ON. Or in admin PowerShell: `reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock /v AllowDevelopmentWithoutDevLicense /t REG_DWORD /d 1 /f`
+>
+> Per-language tools (Foundry, Solana CLI, etc.) are installed automatically via `plamen setup`.
 
 ---
 
