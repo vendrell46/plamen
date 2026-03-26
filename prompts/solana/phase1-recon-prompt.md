@@ -177,7 +177,18 @@ Read ~/.claude/agents/skills/solana/fork-ancestry/SKILL.md and execute all 4 ste
 2. Extract: protocol purpose, key invariants, trust model, external program dependencies
 3. Identify: authority model (admin/multi-sig/DAO), upgradeability (BPFLoaderUpgradeable?), external CPI targets (verified/audited?), key PDA account model, token model (SPL Token or Token-2022?)
 4. If no docs: note 'Inferring purpose from code'
-5. **Trust Assumption Table** (MANDATORY): From ASSUMPTIONS.txt, docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
+5. **Operational Implications** (MANDATORY): Immediately after documenting Key Invariants, add a subsection to design_context.md:
+
+```
+## Operational Implications
+State what each invariant means for how the system works — not what it checks,
+but what it tells you about the system's accounting model.
+Derive these from the invariant formulas and the account/struct definitions in the code.
+Each implication must reference specific data structure signatures or formula
+components — restating the invariant in different words is not an implication.
+```
+
+6. **Trust Assumption Table** (MANDATORY): From ASSUMPTIONS.txt, docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
 
 | # | Actor | Trust Level | Assumption | Source |
 |---|-------|-------------|------------|--------|
@@ -256,6 +267,8 @@ SCRATCHPAD: {scratchpad}
    - `[profile.release] overflow-checks = true` -- if FALSE/missing, flag as HIGH priority (integer overflow risk)
    - Anchor version -- note for known vuln cross-reference
 6. If build fails after 3 attempts, document failure and continue
+
+Also run: `git rev-list --count HEAD` — if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
 
 Write to {SCRATCHPAD}/build_status.md:
 ```markdown
@@ -432,6 +445,7 @@ Grep in program .rs files (exclude target/, tests/, node_modules/, .anchor/):
 | `wormhole\|bridge\|portal\|cross.*chain\|message.*account` | CROSS_CHAIN |
 | `migrate\|upgrade\|v2\|deprecated\|legacy` | MIGRATION |
 | `ed25519_program\|Secp256k1\|verify_signature\|Signature\|ed25519_instruction\|Secp256k1Program` | HAS_SIGNATURES |
+| `approve\|delegate\|authorized_amount\|deposit_for\|stake_for\|delegate_to\|_on_behalf\|_for_user\|mint_to(.*target\|transfer(.*target` (public instructions with target address/pubkey parameter writing state for that target) | MULTI_STEP_OPS |
 
 Write to {SCRATCHPAD}/detected_patterns.md
 
@@ -519,6 +533,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 - HAS_SIGNATURES flag detected (ed25519_program/Secp256k1/verify_signature patterns found) → SIGNATURE_VERIFICATION_AUDIT **niche agent** REQUIRED
 - DOCUMENTATION is non-empty AND contains testable protocol claims (fee structures, thresholds, permissions, distribution logic) → SPEC_COMPLIANCE_AUDIT **niche agent** REQUIRED (set `HAS_DOCS` flag)
 - HAS_MULTI_CONTRACT flag detected (2+ in-scope programs AND constraint_variables.md shows shared parameters/formulas across programs) → SEMANTIC_CONSISTENCY_AUDIT **niche agent** REQUIRED
+- MULTI_STEP_OPS flag detected (approve/delegate/authorized_amount or deposit_for/stake_for/delegate_to patterns found) → MULTI_STEP_OPERATION_SAFETY **niche agent** REQUIRED
 
 ### Niche Agents (Phase 4b - standalone focused agents, 1 budget slot each)
 
@@ -528,6 +543,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 | SIGNATURE_VERIFICATION_AUDIT | HAS_SIGNATURES flag (detected_patterns.md) | {YES/NO} | {if YES: signature verification patterns found} |
 | SPEC_COMPLIANCE_AUDIT | HAS_DOCS flag (non-empty DOCUMENTATION with testable claims) | {YES/NO} | {if YES: docs contain testable claims} |
 | SEMANTIC_CONSISTENCY_AUDIT | HAS_MULTI_CONTRACT flag (contract_inventory.md + constraint_variables.md) | {YES/NO} | {if YES: N shared parameters/formulas across M programs} |
+| MULTI_STEP_OPERATION_SAFETY | MULTI_STEP_OPS flag (detected_patterns.md) | {YES/NO} | {if YES: approve/delegate or on-behalf-of patterns found} |
 
 ### Manifest Summary
 - **Total Required Breadth Agents**: {count of YES in skill templates}

@@ -294,7 +294,18 @@ Append to {SCRATCHPAD}/meta_buffer.md under '## Fork Ancestry Analysis':
    - Resource/Object model: What resources are published? What objects are created?
    - Token model: Coin<T> (legacy) or FungibleAsset (new standard) or both?
 5. If no docs: note 'Inferring purpose from code'
-6. **Trust Assumption Table** (MANDATORY): From docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
+6. **Operational Implications** (MANDATORY): Immediately after documenting Key Invariants, add a subsection to design_context.md:
+
+```
+## Operational Implications
+State what each invariant means for how the system works — not what it checks,
+but what it tells you about the system's accounting model.
+Derive these from the invariant formulas and the struct/resource definitions in the code.
+Each implication must reference specific data structure signatures or formula
+components — restating the invariant in different words is not an implication.
+```
+
+7. **Trust Assumption Table** (MANDATORY): From docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
 
 | # | Actor | Trust Level | Assumption | Source |
 |---|-------|-------------|------------|--------|
@@ -419,6 +430,8 @@ SCRATCHPAD: {scratchpad}
    - Dependency versions/git revisions -- note pinned vs unpinned
    - `[dev-addresses]` and `[dev-dependencies]` -- note test-only dependencies
 7. If build fails after 3 attempts, document failure reason and continue
+
+Also run: `git rev-list --count HEAD` — if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
 
 Write to {SCRATCHPAD}/build_status.md:
 ```markdown
@@ -818,6 +831,7 @@ Grep in .move source files (exclude build/, .aptos/, tests/):
 | `acquires ` | RESOURCE_ACQUISITION |
 | `vector::.*length\|table::.*length\|smart_table\|simple_map\|big_vector` | COLLECTION_USAGE |
 | `ed25519::verify\|ed25519::signature_verify_strict\|multi_ed25519\|SignedMessage\|signature::verify\|rotate_authentication_key` | HAS_SIGNATURES |
+| `approve\|delegate\|allowance\|deposit_for\|stake_for\|delegate_to\|_on_behalf\|_for_user\|_for(.*address` (public entry functions with target address parameter writing state for that target) | MULTI_STEP_OPS |
 
 Write to {SCRATCHPAD}/detected_patterns.md:
 ```markdown
@@ -977,6 +991,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 - HAS_SIGNATURES flag detected (ed25519::verify/multi_ed25519/SignedMessage patterns found) → SIGNATURE_VERIFICATION_AUDIT **niche agent** REQUIRED
 - DOCUMENTATION is non-empty AND contains testable protocol claims (fee structures, thresholds, permissions, distribution logic) → SPEC_COMPLIANCE_AUDIT **niche agent** REQUIRED (set `HAS_DOCS` flag)
 - HAS_MULTI_CONTRACT flag detected (2+ in-scope modules AND constraint_variables.md shows shared parameters/formulas across modules) → SEMANTIC_CONSISTENCY_AUDIT **niche agent** REQUIRED
+- MULTI_STEP_OPS flag detected (approve/delegate/allowance or deposit_for/stake_for/delegate_to patterns found) → MULTI_STEP_OPERATION_SAFETY **niche agent** REQUIRED
 
 ### Niche Agents (Phase 4b - standalone focused agents, 1 budget slot each)
 
@@ -986,6 +1001,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 | SIGNATURE_VERIFICATION_AUDIT | HAS_SIGNATURES flag (detected_patterns.md) | {YES/NO} | {if YES: signature verification patterns found} |
 | SPEC_COMPLIANCE_AUDIT | HAS_DOCS flag (non-empty DOCUMENTATION with testable claims) | {YES/NO} | {if YES: docs contain testable claims} |
 | SEMANTIC_CONSISTENCY_AUDIT | HAS_MULTI_CONTRACT flag (contract_inventory.md + constraint_variables.md) | {YES/NO} | {if YES: N shared parameters/formulas across M modules} |
+| MULTI_STEP_OPERATION_SAFETY | MULTI_STEP_OPS flag (detected_patterns.md) | {YES/NO} | {if YES: approve/delegate or on-behalf-of patterns found} |
 
 ### Manifest Summary
 - **Total Required Breadth Agents**: {count of YES in skill templates}

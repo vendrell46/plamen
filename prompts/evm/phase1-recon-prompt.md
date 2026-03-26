@@ -145,6 +145,7 @@ Use this output format:
 
 Write build result to {SCRATCHPAD}/build_status.md
 Include: `MEDUSA_AVAILABLE: true/false` (and version if available)
+Include: `REPO_SHAPE: squashed_import` if `git rev-list --count HEAD` returns 1, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
 
 ## TASK 2: Static Analysis Artifacts
 
@@ -201,7 +202,18 @@ Grep interfaces directory → {SCRATCHPAD}/external_interfaces.md (always, regar
 1. Read README.md, docs/ folder, or fetch provided URL
 2. Extract: protocol purpose, key invariants, trust model, external dependencies
 3. If no docs: note 'Inferring purpose from code'
-4. **Trust Assumption Table** (MANDATORY): From ASSUMPTIONS.txt, docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
+4. **Operational Implications** (MANDATORY): Immediately after documenting Key Invariants, add a subsection to design_context.md:
+
+```
+## Operational Implications
+State what each invariant means for how the system works — not what it checks,
+but what it tells you about the system's accounting model.
+Derive these from the invariant formulas and the mapping signatures in the code.
+Each implication must reference specific data structure signatures or formula
+components — restating the invariant in different words is not an implication.
+```
+
+5. **Trust Assumption Table** (MANDATORY): From ASSUMPTIONS.txt, docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
 
 | # | Actor | Trust Level | Assumption | Source |
 |---|-------|-------------|------------|--------|
@@ -276,9 +288,11 @@ Grep for these patterns (exclude lib/, test/, mocks/):
 | `reinitializer\|V2\|V3\|_deprecated\|migrat\|upgrade\|legacy` | MIGRATION |
 | `shares\|allocation\|distribute\|pro.rata\|proportional\|vest` | SHARE_ALLOCATION |
 | `rate\|rebase\|supply\|mint.*burn\|emission\|inflation\|peg\|price.*cap\|price.*floor` | MONETARY_PARAMETER |
+| `mulDiv\|mulWad\|divWad\|rayMul\|rayDiv\|FullMath\.mulDiv` (AND codebase also contains `1e6\|1e8\|decimals()`) | MIXED_DECIMALS |
 | `IERC6909\|ERC6909\|IERC1155\|ERC1155\|onERC1155Received` | MULTI_TOKEN_STANDARD |
 | `ecrecover\|ECDSA.recover\|SignatureChecker\|isValidSignature\|EIP712\|domainSeparator\|_domainSeparatorV4\|permit(` | HAS_SIGNATURES |
 | `_safeMint\|safeTransfer\|onERC721Received\|onERC1155Received\|tokensReceived\|onTransferReceived\|onFlashLoan\|executeOperation\|FlashCallback\|beforeSwap\|afterSwap` | OUTCOME_CALLBACK |
+| `depositFor\(\|stakeFor\(\|delegateTo\(\|mintFor\(\|withdrawFor\(\|OnBehalf\(\|claimFor\(\|harvestFor\(\|compoundFor\(` OR (`approve\(\|safeApprove\(\|increaseAllowance\(\|permit\(.*deadline` AND `multicall\|batch\|aggregate\|loop.*approve\|for.*approve`) | MULTI_STEP_OPS |
 | `.call{value\|.call(\|.delegatecall(` targeting non-hardcoded address after state change | OUTCOME_CALLBACK_LOW_LEVEL |
 | `deadline\|claimPeriod\|default.*selection\|fallback.*assign\|getDefault\|expir` AND time-gated with fallback path | OUTCOME_DELAY |
 
@@ -391,11 +405,14 @@ After listing all recommended templates, output this binding manifest:
 - ORACLE flag detected → ORACLE_ANALYSIS **REQUIRED**
 - MONETARY_PARAMETER flag detected → ECONOMIC_DESIGN_AUDIT **REQUIRED**
 - External interactions detected in attack_surface.md → EXTERNAL_PRECONDITION_AUDIT **REQUIRED**
+- MIXED_DECIMALS flag detected → DIMENSIONAL_ANALYSIS **injectable skill** RECOMMENDED (inject into depth-token-flow + depth-state-trace)
 
 ### Niche Agent Binding Rules
 - MISSING_EVENT flag detected (setter_list.md has MISSING EVENT entries OR emit_list.md shows state-changing functions without events) → EVENT_COMPLETENESS **niche agent** REQUIRED
 - HAS_SIGNATURES flag detected (ecrecover/ECDSA.recover/permit/EIP712/domainSeparator/nonces/isValidSignature patterns found) → SIGNATURE_VERIFICATION_AUDIT **niche agent** REQUIRED
 - HAS_MULTI_CONTRACT flag detected (2+ in-scope contracts AND constraint_variables.md shows shared parameters/formulas across contracts) → SEMANTIC_CONSISTENCY_AUDIT **niche agent** REQUIRED
+- MULTI_STEP_OPS flag detected (approve/safeApprove/increaseAllowance/permit or depositFor/stakeFor/delegateTo/mintFor/withdrawFor/OnBehalf/claimFor/harvestFor/compoundFor patterns found) → MULTI_STEP_OPERATION_SAFETY **niche agent** REQUIRED
+- OUTCOME_CALLBACK flag detected (onERC721Received/onERC1155Received/tokensReceived/onTransferReceived/onFlashLoan/executeOperation patterns found) → CALLBACK_RECEIVER_SAFETY **niche agent** REQUIRED
 
 ### Niche Agents (Phase 4b - standalone focused agents, 1 budget slot each)
 
@@ -404,6 +421,14 @@ After listing all recommended templates, output this binding manifest:
 | EVENT_COMPLETENESS | MISSING_EVENT flag (setter_list.md / emit_list.md) | {YES/NO} | {if YES: N setters without events found} |
 | SIGNATURE_VERIFICATION_AUDIT | HAS_SIGNATURES flag (detected_patterns.md) | {YES/NO} | {if YES: signature patterns found - ecrecover/ECDSA/permit/EIP712} |
 | SEMANTIC_CONSISTENCY_AUDIT | HAS_MULTI_CONTRACT flag (contract_inventory.md + constraint_variables.md) | {YES/NO} | {if YES: N shared parameters/formulas across M contracts} |
+| MULTI_STEP_OPERATION_SAFETY | MULTI_STEP_OPS flag (detected_patterns.md) | {YES/NO} | {if YES: approve/safeApprove/increaseAllowance/permit or depositFor/stakeFor/delegateTo/OnBehalf patterns found} |
+| CALLBACK_RECEIVER_SAFETY | OUTCOME_CALLBACK flag (detected_patterns.md) | {YES/NO} | {if YES: callback handler patterns found - onERC721Received/tokensReceived/etc.} |
+
+### Pattern-Triggered Injectable Skills
+
+| Injectable Skill | Trigger | Recommended? | Reason |
+|-----------------|---------|-------------|--------|
+| DIMENSIONAL_ANALYSIS | MIXED_DECIMALS flag (mulDiv/mulWad + mixed-decimal constants in scope) | {YES/NO} | {if YES: inject into depth-token-flow + depth-state-trace} |
 
 ### Manifest Summary
 - **Total Required Breadth Agents**: {count of YES in skill templates}

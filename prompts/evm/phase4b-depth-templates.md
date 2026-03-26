@@ -50,6 +50,10 @@ For every code path that transfers execution to an external address AFTER determ
 | Low-level calls | `.call(\|.delegatecall(` to parameter/storage address | Arbitrary code execution at target |
 | Protocol-specific | `Callback\|Receiver\|Hook` in interface definitions | Custom callback interfaces |
 
+> **Note**: If CALLBACK_RECEIVER_SAFETY niche agent output exists in `{SCRATCHPAD}/niche_callback_safety_findings.md` and is non-empty, defer to it for standard callback types (onERC721Received, onERC1155Received, tokensReceived, onTransferReceived, onFlashLoan, executeOperation) — this includes Step 1b below. Focus your effort on domain-specific depth analysis and custom callback interfaces only. If the niche agent output file does not exist or is empty, treat ALL callback analysis (including Step 1b) as YOUR responsibility.
+
+**Step 1b - Callback access control** (skip for standard types if niche agent output exists — see note above): For each callback found: is it permissionless (anyone can trigger it by sending tokens/NFTs to the contract)? What state does it modify? As an attacker, how could you weaponize that state change against other users or the protocol?
+
 **Step 2 - For each found**: Was value-bearing state (type assignment, random outcome, token allocation, reward amount, share calculation) written BEFORE the external call? If YES → can the recipient read that state and revert if unfavorable? If YES → is retry possible (outcome varies across attempts)? If YES → compute economic rationality: `gas_per_retry × E[retries] < value_of_desired_outcome`.
 
 Tag: `[TRACE:{function} → callback to {target} → outcome={what} visible before callback → revert resets={YES/NO} → retry={YES/NO}]`
@@ -88,10 +92,32 @@ For EVERY finding you analyze or produce, you MUST apply at least 2 of these 3 t
 A finding without at least 2 depth evidence tags is INCOMPLETE and will score poorly in confidence scoring.
 
 ## EXPLOITATION TRACE MANDATE
-For every Medium+ finding, produce a concrete exploitation trace: attacker action → state change → profit/loss. 'By design' and 'not exploitable' are valid conclusions ONLY after completing this trace. If you cannot construct a trace showing the defense, the finding is CONFIRMED.
+For every Medium+ finding, produce a concrete exploitation trace: attacker action → state change → concrete profit/loss in dollar terms. 'Validation bypassed' or 'state corrupted' is NOT a terminal state — trace until tokens move to an attacker-controlled address, users lose measurable value, OR the attacker gains a privileged state that enables further exploitation (document the enabled capabilities). 'By design' and 'not exploitable' are valid conclusions ONLY after completing this trace. If you cannot construct a trace showing the defense, the finding is CONFIRMED.
 
-## DISCOVERY MODE
-You are in DISCOVERY mode. Your job is to SURFACE potential vulnerabilities, not to filter them. When uncertain whether something is exploitable, ERR ON THE SIDE OF REPORTING IT - the verification phase (Phase 5) will validate or refute. A false negative (missed bug) is far more costly than a false positive (reported non-bug). Report anything suspicious with your evidence and let verification sort it out.
+## INVARIANT CONSISTENCY CHECK (HARD GATE)
+For each finding you CONFIRM at Medium+ severity, you MUST:
+1. Read the Operational Implications section in design_context.md
+2. Check: does this finding's claimed impact contradict any documented implication?
+3. If the finding claims tokens are locked, lost, or desynchronized — trace the ACTUAL token flow (source address → destination address → balanceOf checks) and verify the claim against the documented accounting model
+4. If the claim contradicts a documented implication and you cannot demonstrate with concrete code evidence why the invariant is insufficient or broken, downgrade to CONTESTED with the contradiction noted
+
+This is a HARD GATE that applies to every Medium+ finding. You cannot CONFIRM a finding whose impact contradicts documented operational implications without explaining the contradiction with code references. "Looks suspicious" is not sufficient for CONFIRMED — trace the actual state to prove the harm.
+
+## ANCHORING REJECTION LIST
+
+Before marking a finding REFUTED or CONTESTED, verify you are NOT relying on these insufficient justifications:
+
+| Rationalization | Why It Is Insufficient — What To Do Instead |
+|----------------|---------------------------------------------|
+| "The formula appears correct" | Trace actual units/values through the arithmetic; do not describe correctness, prove it with boundary substitution |
+| "Standard pattern used elsewhere" | Standard patterns carry standard bugs; verify the pattern's invariants at THIS call site |
+| "Tests pass" | Tests use controlled inputs and mock tokens; check boundary values the test suite does not cover |
+| "By design" | Describes mechanism, not impact — trace the terminal user-facing consequence (token loss, lock, mispricing) before closing |
+| "Unlikely to be exploited" | Likelihood belongs to the severity matrix; address exploitability with code evidence, not intuition |
+| "Only affects internal accounting" | Trace whether the internal accounting is ever consumed for a transfer, mint, liquidation, or redemption |
+| "All tokens use 18 decimals" | Verify per-token: USDC=6, WBTC=8, Chainlink feeds=8 are common exceptions; confirm before assuming |
+
+If your REFUTED/CONTESTED reasoning matches any row above: upgrade to CONTESTED and document the specific evidence gap, OR complete the trace and confirm/refute with code references.
 
 ## PART 1: GAP-TARGETED DEEP ANALYSIS (PRIMARY - 80% effort)
 
@@ -126,6 +152,7 @@ Also read {SCRATCHPAD}/attack_surface.md and check for UNANALYZED attack vectors
    - Does the function handle the case where `address != msg.sender`?
    - What is the DEFAULT state for a never-before-seen address? Can the caller exploit that default?
    - Common pattern: `stake(address to, uint256 amount)` where `to` has zero-initialized state that unlocks historical rewards/positions.
+   - Also test: `target = protocol infrastructure contract` (router, swapper, vault, pool logic). State changes on infrastructure contracts may affect ALL users, not just the intended recipient.
 
 5. **Protocol design limit analysis**: For each bounded parameter (max validators, max pools, max array length, max users, max epochs), what happens AT the design limit?
    - Does the protocol degrade gracefully (partial functionality, queue, rejection) or fail catastrophically (revert, infinite loop, OOG)?
@@ -195,11 +222,11 @@ For EVERY question you investigate, apply at least 2 of these 3 techniques:
 2. **Parameter Variation**: Tag: `[VARIATION:param A→B → outcome]`
 3. **Trace to Termination**: Tag: `[TRACE:path→outcome at L{N}]`
 
-## DISCOVERY MODE
-ERR ON THE SIDE OF REPORTING. A false negative (missed bug) is far more costly than a false positive. Report anything suspicious with evidence.
+## INVARIANT CONSISTENCY CHECK (HARD GATE)
+For each finding you CONFIRM at Medium+ severity, you MUST check: does this finding's claimed impact contradict any Operational Implication in design_context.md? If the finding claims tokens are locked, lost, or desynchronized — trace the ACTUAL token flow and verify against the documented accounting model. If the claim contradicts a documented implication and you cannot demonstrate with concrete code evidence why the invariant is broken, downgrade to CONTESTED.
 
 ## EXPLOITATION TRACE MANDATE
-For every Medium+ finding, produce a concrete exploitation trace: attacker action → state change → profit/loss.
+For every Medium+ finding, produce a concrete exploitation trace: attacker action → state change → concrete profit/loss in dollar terms. Trace until tokens move, users lose measurable value, OR the attacker gains a privileged state that enables further exploitation.
 
 ## Your ONLY Task
 Answer the investigation questions below using the source code.

@@ -21,7 +21,14 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
   total_findings = len(findings_inventory)
   breadth_savings = max(0, 4 - actual_breadth_agent_count)  // breadth-to-depth redirect
   depth_floor = 12 + breadth_savings  // Simple codebases (2 breadth) get floor=14
-  max_depth_spawns = min(max(depth_floor, ceil(total_findings / 5) + 7), 20)  // dynamic cap
+  niche_injectable_count = len(niche_agents) + len(injectable_agents)
+  niche_overflow = max(0, niche_injectable_count - 3)
+  thorough_bonus = 5 if MODE == THOROUGH else 0
+  hard_cap = 20 + niche_overflow + thorough_bonus
+  iter1_fixed = 10 + niche_injectable_count + 1  // 10 base (4 depth + 3 scanner + 1 VS + 1 SP + 1 DST) + niche/inj
+  iter23_reserve = 3 if MODE == THOROUGH else 0
+  effective_floor = max(depth_floor, iter1_fixed + iter23_reserve)
+  max_depth_spawns = min(max(effective_floor, ceil(total_findings / 5) + 7), hard_cap)  // dynamic cap
   dst_reserved = 1  // Design Stress Testing always gets 1 slot
   depth_available = max_depth_spawns - dst_reserved  // depth agents share the rest
   max_findings_per_agent = 5  // anti-dilution rule AD-3
@@ -227,8 +234,8 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
   if any_respawned: await respawned results; re-merge
 
   // ═══ SCORE all findings ═══
-  // NOTE: Sibling Propagation merged back into Validation Sweep as CHECK 9.
-  // Saves 1 depth budget slot. Validation Sweep already reads findings_inventory.md.
+  // NOTE: Sibling Propagation is a standalone agent (scanner-tier, parallel with Validation Sweep).
+  // It reads findings_inventory.md and writes sibling_propagation_findings.md.
   // Spawn scoring agent (haiku - use Scoring Agent Template below)
   // Writes {SCRATCHPAD}/confidence_scores.md
   await scoring_agent
@@ -327,6 +334,51 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
     depth_spawns_used += 1
 
     // Loop complete
+
+    // ═══ COVERED-FUNCTION RE-SWEEP ═══
+    // Counters finding-level attention saturation: once a function has a finding,
+    // other vulnerability classes in that function are masked. This re-sweep forces
+    // lens rotation on functions that already have findings.
+    // 1 sonnet agent, 1 depth budget slot. Runs after DST, before chain prep.
+    covered = extract_functions_with_findings(depth_*_findings, blind_spot_*_findings, niche_*_findings)
+    // Deduplicate by function name. For each, record the known finding topic.
+    if len(covered) > 0 AND depth_spawns_used < max_depth_spawns:
+      spawn resweep_agent(model="sonnet", prompt="
+        You are the Covered-Function Re-Sweep Agent.
+
+        These functions already have findings. For each, the KNOWN topic is listed.
+        Analyze each function for vulnerability classes OUTSIDE the known topic.
+
+        {COVERED_FUNCTION_TABLE: function_name | file:line | known_topic_to_EXCLUDE}
+
+        Read {SCRATCHPAD}/state_dependency_map.md for cross-function state dependencies.
+
+        For each function:
+        1. Read the function source code
+        2. What OTHER vulnerability classes could affect this function?
+           (state dependency breaks, input validation gaps, authorization/approval
+           side effects, caller assumption violations, return value mishandling)
+        3. If the function modifies state that other functions depend on (check
+           state_dependency_map.md): can calling this function break those consumers?
+
+        CALIBRATION:
+        - Finding nothing new is a valid and expected output
+        - Do NOT fabricate findings to justify your existence
+        - Every finding MUST have a specific code location (file:line)
+        - Every finding MUST NOT overlap with the excluded topic
+        - Max 5 findings total across all re-examined functions
+
+        Write to {SCRATCHPAD}/resweep_findings.md
+        Use finding IDs [RSW-1], [RSW-2], etc. with standard finding format.
+
+        SCOPE: Write ONLY to your assigned output file. Do NOT proceed to subsequent
+        pipeline phases. Return your findings and stop.
+
+        Return: 'DONE: {N} new findings from {M} re-examined functions'
+      ")
+      depth_spawns_used += 1
+      await resweep_agent
+      // If resweep found new findings, they feed into chain analysis via findings_inventory
 
     // ═══ VARIABLE-FINDING CROSS-REFERENCE ═══
     // Sonnet agent pre-computes a compact variable→finding map for chain analysis.
