@@ -805,32 +805,19 @@ def _is_fanless_mac() -> bool:
 
 
 def _should_use_fast_rag() -> bool:
-    """Detect if machine should use lightweight embedding model for RAG build.
+    """Return True to use MiniLM (~90MB, 5x faster) instead of Nomic (~500MB).
 
-    Nomic Embed v1.5 (~500MB) + PyTorch runs sustained CPU inference during
-    indexing. On fanless machines (all MacBook Airs) this causes thermal
-    throttling and potential crashes. On low-RAM machines (<16GB) it causes
-    heavy swapping. MiniLM (~90MB) is ~5x faster and perfectly adequate.
+    MiniLM is the default for all platforms. It is perfectly adequate for
+    vulnerability pattern matching and eliminates crashes on constrained
+    machines (M1 Pro 16GB, MacBook Air, etc.).
 
-    Override: set VULN_DB_FAST_MODE=0 to force Nomic, =1 to force MiniLM.
+    Override: set VULN_DB_FAST_MODE=0 to force Nomic (power users only).
     """
     val = os.environ.get("VULN_DB_FAST_MODE", "").lower()
     if val in ("0", "false", "no"):
         return False
-    if val in ("1", "true", "yes"):
-        return True
-
-    # Fanless Macs throttle regardless of RAM — sustained PyTorch load
-    # on M1/M2/M3 Air causes 100%+ CPU with no thermal headroom
-    if _is_fanless_mac():
-        return True
-
-    # Low RAM: Nomic + PyTorch + ChromaDB needs ~4-6GB working memory
-    ram_gb = _get_total_ram_gb()
-    if 0 < ram_gb < 16:
-        return True
-
-    return False
+    # Default: use MiniLM for everyone. Nomic is opt-in via VULN_DB_FAST_MODE=0.
+    return True
 
 
 def _build_rag_db(w):
