@@ -170,11 +170,11 @@ When protocol manages multiple validators, pools, vaults, or markets:
 - If NO recovery path AND amount > $10,000 at protocol scale → minimum **HIGH**
 - If assets are theoretical only (not yet held) → standard severity matrix applies
 
-**Mandatory analysis for upgrade/migration protocols**:
+**Mandatory analysis for upgrade/migration/irreversible-state protocols**:
 
 | Step | Check | If Failed |
 |------|-------|-----------|
-| 1 | Inventory ALL asset types held pre-upgrade | Coverage gap |
+| 1 | Inventory ALL asset types held (ERC20, ERC721, ERC1155, native ETH) | Coverage gap |
 | 2 | Does post-upgrade logic handle each asset type? | Check step 3 |
 | 3 | Recovery function exists? (sweep, admin rescue, migration) | STRANDED ASSET finding |
 | 4 | Apply severity floor from above | - |

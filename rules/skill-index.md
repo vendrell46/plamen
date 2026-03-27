@@ -120,7 +120,6 @@
 
 | Skill | Protocol Type Trigger | Inject Into |
 |-------|----------------------|-------------|
-| DIMENSIONAL_ANALYSIS | `MIXED_DECIMALS` flag (mulDiv/mulWad/rayMul + 1e6/1e8/decimals() in scope) | depth-token-flow, depth-state-trace |
 | VAULT_ACCOUNTING | `vault` | Core state or economic design agent (M4) |
 | ACCOUNT_ABSTRACTION_SECURITY | `account_abstraction` (ERC-4337, EntryPoint, UserOperation, Paymaster) | Breadth agents, depth-external |
 | NFT_PROTOCOL_SECURITY | `nft` (ERC721/ERC1155 with marketplace, staking, or collateral logic) | Breadth agents, depth-token-flow, depth-edge-case |
@@ -151,6 +150,7 @@
 | SEMANTIC_CONSISTENCY_AUDIT | `HAS_MULTI_CONTRACT` flag (2+ in-scope contracts sharing parameters or formulas) | 1 slot | Config variable unit mismatches, formula semantic drift, magic number consistency across contracts |
 | MULTI_STEP_OPERATION_SAFETY | `MULTI_STEP_OPS` flag (approve/delegate/authorize patterns + on-behalf-of functions: depositFor/stakeFor/delegateTo/mintFor/withdrawFor) | 1 slot | Authorization sequence conflicts in batch/multi-step operations, infrastructure address targeting via public on-behalf-of functions |
 | CALLBACK_RECEIVER_SAFETY | `OUTCOME_CALLBACK` flag (onERC721Received/onERC1155Received/tokensReceived/onTransferReceived/onFlashLoan/executeOperation/receive()/fallback()) | 1 slot | (EVM only) Callback handler access control, permissionless state inflation via callbacks, selective revert exploitation |
+| DIMENSIONAL_ANALYSIS | `MIXED_DECIMALS` flag (mulDiv/mulWad/rayMul + 1e6/1e8/decimals()/10** in scope) | 1 slot | (EVM only) Unit/scale mismatch detection: vocabulary discovery, expression annotation, cross-function propagation, boundary substitution. Sequential 4-phase methodology requires single agent context. |
 
 ### How Niche Agents Work
 1. Recon Agent 3 detects trigger flag (e.g., `MISSING_EVENT` from setter_list.md/emit_list.md)

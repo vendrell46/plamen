@@ -1,4 +1,4 @@
-# Plamen - Web3 Security Auditor (v1.1.0)
+# Plamen - Web3 Security Auditor (v1.1.1)
 
 You are **Plamen**, an autonomous Web3 security auditing agent. When asked to audit a codebase, use the `/plamen` command to start the audit pipeline.
 
@@ -18,7 +18,7 @@ You are **Plamen**, an autonomous Web3 security auditing agent. When asked to au
 | Orchestrator model | User's session model (Pro default: Sonnet) | Opus | Opus |
 | Agent models | All Sonnet/Haiku | Opus + Sonnet | Opus + Sonnet |
 | Recon | 2 sonnet (no RAG, no fork) | 4 agents (RAG fire-and-forget) | 4 agents (full RAG) |
-| Breadth agents | 2-3 sonnet | 2-7 opus | 2-7 opus |
+| Breadth agents | 3-4 sonnet | 5-9 opus | 5-9 opus |
 | Breadth re-scan (3b/3c) | Skip | Skip | Full (sonnet, 2 iters + per-contract) |
 | Depth loop | 4 merged sonnet, iter 1 | 8+ agents, iter 1 | Iter 1-3 (DA role) |
 | Niche agents | Skip | Flag-triggered | Flag-triggered |
@@ -33,7 +33,7 @@ You are **Plamen**, an autonomous Web3 security auditing agent. When asked to au
 | Skeptic-Judge | Skip | Skip | HIGH/CRIT |
 | Cross-batch consistency | Skip | 1 haiku | 1 haiku |
 | Report | 2 agents (sonnet + haiku) | 5 agents (opus + sonnet + haiku) | 5 agents |
-| Agent count | ~15-18 | ~25-45 | ~35-95 |
+| Agent count | ~18-22 | ~30-50 | ~40-100 |
 
 ---
 
@@ -90,7 +90,7 @@ You are **Plamen**, an autonomous Web3 security auditing agent. When asked to au
 | Skill templates | `~/.claude/agents/skills/{LANGUAGE}/**/SKILL.md` |
 
 <!-- PLAMEN:START — managed by plamen install, do not edit -->
-# Plamen - Web3 Security Auditor (v1.1.0)
+# Plamen - Web3 Security Auditor (v1.1.1)
 
 You are **Plamen**, an autonomous Web3 security auditing agent. When asked to audit a codebase, use the `/plamen` command to start the audit pipeline.
 
@@ -110,7 +110,7 @@ You are **Plamen**, an autonomous Web3 security auditing agent. When asked to au
 | Orchestrator model | User's session model (Pro default: Sonnet) | Opus | Opus |
 | Agent models | All Sonnet/Haiku | Opus + Sonnet | Opus + Sonnet |
 | Recon | 2 sonnet (no RAG, no fork) | 4 agents (RAG fire-and-forget) | 4 agents (full RAG) |
-| Breadth agents | 2-3 sonnet | 2-7 opus | 2-7 opus |
+| Breadth agents | 3-4 sonnet | 5-9 opus | 5-9 opus |
 | Breadth re-scan (3b/3c) | Skip | Skip | Full (sonnet, 2 iters + per-contract) |
 | Depth loop | 4 merged sonnet, iter 1 | 8+ agents, iter 1 | Iter 1-3 (DA role) |
 | Niche agents | Skip | Flag-triggered | Flag-triggered |
@@ -125,7 +125,7 @@ You are **Plamen**, an autonomous Web3 security auditing agent. When asked to au
 | Skeptic-Judge | Skip | Skip | HIGH/CRIT |
 | Cross-batch consistency | Skip | 1 haiku | 1 haiku |
 | Report | 2 agents (sonnet + haiku) | 5 agents (opus + sonnet + haiku) | 5 agents |
-| Agent count | ~15-18 | ~25-45 | ~35-95 |
+| Agent count | ~18-22 | ~30-50 | ~40-100 |
 
 ---
 

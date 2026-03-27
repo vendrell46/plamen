@@ -375,7 +375,7 @@ Detect the target language before anything else:
 |-------|----------|--------|-------|------|----------|
 | **Phase 1** | Recon Agent(s) | Artifacts + templates | 2 sonnet (no RAG/fork) | 4 agents | 4 agents |
 | **Phase 2** | Orchestrator | Instantiated prompts | All | All | All |
-| **Phase 3** | Breadth Agents | Findings files | 2-3 sonnet | 2-7 opus | 2-7 opus |
+| **Phase 3** | Breadth Agents | Findings files | 3-4 sonnet | 5-9 opus | 5-9 opus |
 | **Phase 3b** | Re-Scan + Per-Contract | Masked findings | Skip | Skip | Thorough only |
 | **Phase 4a** | Inventory Agent | Findings inventory | 1 sonnet | 1 sonnet | 1 sonnet |
 | **Phase 4a.5** | Semantic Invariant Agent | Write-sites + invariants | Skip | Pass 1 | Pass 1+2 |
@@ -391,7 +391,7 @@ When `MODE == light`, the orchestrator applies these overrides:
 
 1. **All agents use Sonnet or Haiku** — no Opus spawns. Use `model="sonnet"` for all analysis/verification agents, `model="haiku"` for assembler only.
 2. **Recon**: Spawn 2 sonnet agents (not 4). Agent L1 = build + static analysis + tests (Tasks 1,2,8,9). Agent L2 = docs + patterns + surface + templates (Tasks 3,4,5,6,7,10). Skip RAG meta-buffer (Task 0) and fork ancestry entirely.
-3. **Breadth**: Cap at 2-3 sonnet agents (not 2-7 opus). Use same merge hierarchy.
+3. **Breadth**: Cap at 3-4 sonnet agents (not 5-9 opus). Use same merge hierarchy.
 4. **Semantic Invariants**: Skip entirely. Depth agents read `state_variables.md` directly.
 5. **Depth Loop**: Spawn 4 merged sonnet agents — (a) combined token-flow + state-trace, (b) combined edge-case + external, (c) combined scanner A+B+C, (d) validation sweep. No niche agents, no injectable investigation agents. Iteration 1 only, no confidence scoring. **Note**: Merges (a) and (c) are deliberate exceptions to the standard merge hierarchy — token-flow + state-trace and 3-scanner compression reduce agent count at the cost of per-domain attention depth. This is a known tradeoff accepted for Pro plan rate limit compliance.
 6. **Chain Analysis**: Single sonnet agent performs both enabler enumeration and chain matching in one pass.
@@ -442,13 +442,13 @@ Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`
 ### Step 2a: Determine Agent Count
 | Condition | Agent Count |
 |-----------|-------------|
-| Simple (<5 deps, <2000 lines) | 2 agents |
-| Medium (5-10 deps, 2000-5000 lines) | 4-5 agents |
-| Complex (>10 deps or >5000 lines) | 5-7 agents |
+| Simple (<5 deps, <2000 lines) | 3 agents |
+| Medium (5-10 deps, 2000-5000 lines) | 5-7 agents |
+| Complex (>10 deps or >5000 lines) | 7-9 agents |
 
 **Minimum always**: 1 core state, 1 access control, 1 per major external dep (overrides Simple tier if needed)
 
-**Breadth-to-depth redirect**: When actual breadth agent count is below the Medium baseline (4), the saved slots increase the depth budget floor: `depth_floor = 12 + (4 - actual_breadth_count)`.
+**Breadth-to-depth redirect**: When actual breadth agent count is below the Medium baseline (5), the saved slots increase the depth budget floor: `depth_floor = 12 + (5 - actual_breadth_count)`.
 
 ### Step 2a.1: Merge Hierarchy (when required templates exceed target count)
 
@@ -460,18 +460,18 @@ Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`
 | M4 | ECONOMIC_DESIGN_AUDIT + core state agent | Monetary params are state correctness |
 | M5 | EXTERNAL_PRECONDITION_AUDIT + external dependency agent | External preconditions are external dep analysis |
 
-**Rules**: Never merge two skills both requiring >5 analysis steps. Never merge across incompatible domains. **Never merge FLASH_LOAN_INTERACTION or ORACLE_ANALYSIS with any other skill.** **Max 3 templates per agent (including injectables) AND max 400 combined SKILL.md lines.** If a 3-template merge would exceed 400 lines, split into a 4th breadth agent instead. This prevents attention saturation on dense methodology — agents reliably execute ~400 lines of skill payload but degrade on larger prompts.
+**Rules**: Never merge two skills both requiring >5 analysis steps. Never merge across incompatible domains. **Never merge FLASH_LOAN_INTERACTION or ORACLE_ANALYSIS with any other skill.** **Max 2 templates per agent (including injectables) AND max 300 combined SKILL.md lines.** If a 2-template merge would exceed 300 lines, split into an additional breadth agent instead. Narrower scope per agent improves depth — agents reliably execute ~300 lines of skill payload but degrade on larger prompts (validated by multi-agent audit research: LLMBugScanner, iAudit).
 
 ### Step 2a.2: Move-Safety Agent (Aptos/Sui only)
 
-For Aptos and Sui audits, the 4 always-required skills (ABILITY_ANALYSIS, BIT_SHIFT_SAFETY, TYPE_SAFETY, REF_LIFECYCLE/OBJECT_OWNERSHIP) total ~900-950 lines — far exceeding the 400-line breadth agent cap. These are split into two delivery layers:
+For Aptos and Sui audits, the 4 always-required skills (ABILITY_ANALYSIS, BIT_SHIFT_SAFETY, TYPE_SAFETY, REF_LIFECYCLE/OBJECT_OWNERSHIP) total ~900-950 lines — far exceeding the 300-line breadth agent cap. These are split into two delivery layers:
 
-1. **Core directives** (~130 lines): Loaded into EVERY breadth agent via `~/.claude/agents/skills/{LANGUAGE}/move-safety-core-directives/SKILL.md`. Contains inventory greps + flag tables. Counts toward the 400-line cap but leaves ~270 lines for conditional skills.
+1. **Core directives** (~130 lines): Loaded into EVERY breadth agent via `~/.claude/agents/skills/{LANGUAGE}/move-safety-core-directives/SKILL.md`. Contains inventory greps + flag tables. Counts toward the 300-line cap but leaves ~170 lines for conditional skills.
 2. **Move-Safety Agent** (1 dedicated agent): Spawned in Phase 3 alongside breadth agents. Loads ALL 4 full skill files (~950 lines). Runs the complete trace methodology that breadth agents cannot fit. Costs 1 breadth agent slot.
 
 The Move-Safety Agent prompt: load all 4 always-required SKILLs into a single agent with scope = "full Move-specific safety analysis." Its findings feed into `findings_inventory.md` alongside breadth findings. Depth agents still receive full skills per their injection rules (depth agents have separate context windows, not subject to the breadth merge cap).
 
-**EVM/Solana**: No Move-Safety Agent needed. EVM has no always-required skills. Solana has ACCOUNT_VALIDATION (130 lines) which fits within the 400-line cap.
+**EVM/Solana**: No Move-Safety Agent needed. EVM has no always-required skills. Solana has ACCOUNT_VALIDATION (130 lines) which fits within the 300-line cap.
 
 ### Step 2b: Instantiate Templates
 For each template in `template_recommendations.md`:

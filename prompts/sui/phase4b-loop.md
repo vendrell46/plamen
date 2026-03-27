@@ -20,8 +20,8 @@
 ADAPTIVE_DEPTH_LOOP(findings_inventory):
   max_iterations = 3
   total_findings = len(findings_inventory)
-  breadth_savings = max(0, 4 - actual_breadth_agent_count)  // breadth-to-depth redirect
-  depth_floor = 12 + breadth_savings  // Simple codebases (2 breadth) get floor=14
+  breadth_savings = max(0, 5 - actual_breadth_agent_count)  // breadth-to-depth redirect
+  depth_floor = 12 + breadth_savings  // Simple codebases (3 breadth) get floor=14
   niche_injectable_count = len(niche_agents) + len(injectable_agents)
   niche_overflow = max(0, niche_injectable_count - 3)
   thorough_bonus = 5 if MODE == THOROUGH else 0
