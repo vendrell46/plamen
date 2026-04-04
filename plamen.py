@@ -1908,6 +1908,10 @@ def run_setup():
             # so the tool's own installer sees them and skips PATH warnings
             if paths:
                 for p in paths:
+                    # Skip Windows-absolute paths (C:/...) on non-Windows to avoid
+                    # creating junk "C:" directories on macOS/Linux
+                    if sys.platform != "win32" and len(p) >= 2 and p[1] == ':':
+                        continue
                     expanded = os.path.normpath(os.path.expanduser(p))
                     try:
                         os.makedirs(expanded, exist_ok=True)
@@ -1925,6 +1929,12 @@ def run_setup():
                     break
             if success:
                 w(f"  {_C_GREEN}  done{_RST}\n")
+
+            # Refresh PATH after install so re-check finds newly installed tools
+            # (especially important for winget which modifies system PATH)
+            if paths:
+                _update_path_env(paths)
+                _refresh_system_path()
             w("\n")
 
     # ── Re-check ─────────────────────────────────────────────
