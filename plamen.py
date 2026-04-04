@@ -1909,7 +1909,10 @@ def run_setup():
             if paths:
                 for p in paths:
                     expanded = os.path.normpath(os.path.expanduser(p))
-                    os.makedirs(expanded, exist_ok=True)
+                    try:
+                        os.makedirs(expanded, exist_ok=True)
+                    except PermissionError:
+                        pass  # System paths (e.g., Program Files) can't be pre-created
                 _update_path_env(paths, persist=True)
                 _refresh_system_path()
 
