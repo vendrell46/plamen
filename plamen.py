@@ -1266,11 +1266,60 @@ def _setup_python_deps(w):
     return all_ok
 
 
+def _setup_mcp_packages(w):
+    """Install pinned MCP npm packages and update ~/.claude.json to use them."""
+    mcp_dir = os.path.join(PLAMEN_HOME, "mcp-packages")
+    pkg_json = os.path.join(mcp_dir, "package.json")
+    update_script = os.path.join(mcp_dir, "update_config.py")
+
+    if not os.path.isfile(pkg_json):
+        w(f"  {_C_GRAY}  mcp-packages/package.json not found — skipping{_RST}\n")
+        return
+
+    # Step 1: npm install (only if node_modules missing or package.json newer)
+    nm_dir = os.path.join(mcp_dir, "node_modules")
+    needs_install = not os.path.isdir(nm_dir)
+    if not needs_install:
+        # Check if package.json is newer than node_modules
+        try:
+            needs_install = os.path.getmtime(pkg_json) > os.path.getmtime(nm_dir)
+        except OSError:
+            needs_install = True
+
+    if needs_install:
+        npm_bin = shutil.which("npm")
+        if npm_bin:
+            w(f"  {_C_DARK_GRAY}  Installing pinned MCP packages...{_RST}\n")
+            sys.stdout.flush()
+            r = subprocess.run([npm_bin, "install"], cwd=mcp_dir,
+                               capture_output=True, text=True, timeout=120)
+            if r.returncode == 0:
+                w(f"  {_C_GREEN}✓{_RST} MCP packages installed\n")
+            else:
+                w(f"  {_C_ORANGE}!{_RST} npm install failed: {r.stderr[:200]}\n")
+                return
+        else:
+            w(f"  {_C_ORANGE}!{_RST} npm not found — cannot install MCP packages\n")
+            return
+    else:
+        w(f"  {_C_GREEN}✓{_RST} MCP packages up to date\n")
+
+    # Step 2: Update ~/.claude.json to use pinned paths + schema sanitizer
+    if os.path.isfile(update_script):
+        python_bin = sys.executable
+        r = subprocess.run([python_bin, update_script], capture_output=True, text=True, timeout=30)
+        if r.returncode == 0:
+            w(f"  {_C_GREEN}✓{_RST} MCP server config updated (pinned + sanitized)\n")
+        else:
+            w(f"  {_C_ORANGE}!{_RST} MCP config update failed: {r.stderr[:200]}\n")
+
+
 def _setup_config_files(w):
     """Merge Plamen's config into Claude Code's ~/.claude/ (additive, non-destructive)."""
     steps = [("settings.json", _merge_settings_json),
              ("mcp.json",      _merge_mcp_json),
-             ("CLAUDE.md",     _merge_claude_md)]
+             ("CLAUDE.md",     _merge_claude_md),
+             ("MCP packages",  _setup_mcp_packages)]
     for i, (label, fn) in enumerate(steps, 1):
         w(f"  {_C_DARK_GRAY}[{i}/{len(steps)}] Merging {label}...{_RST}\n")
         sys.stdout.flush()

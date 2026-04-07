@@ -53,6 +53,23 @@ These are **not symlinked** — they are merged/injected at install time:
 
 ---
 
+## MCP Package Pinning
+
+npm-based MCP servers (`evm-chain-data`, `foundry-suite`, `tavily-search`, `memory`, `helius`) are pinned to specific versions in `mcp-packages/package.json` to prevent the Anthropic API `oneOf`/`allOf` schema rejection error caused by upstream npm package updates.
+
+`plamen install` handles this automatically:
+1. Runs `npm install` in `mcp-packages/` (installs pinned versions to `node_modules/`)
+2. Runs `update_config.py` to update `~/.claude.json` with pinned paths + schema sanitizer
+
+If you add a new npm MCP server or update a version:
+1. Edit `mcp-packages/package.json`
+2. Run `cd ~/.claude/mcp-packages && npm install` (or just `plamen install`)
+3. Restart Claude Code
+
+The `schema-sanitizer.js` proxy wraps `evm-chain-data` and `foundry-suite` — it strips `oneOf`/`allOf`/`anyOf` from tool schemas before they reach the API. Safe servers run directly without the proxy.
+
+---
+
 ## What Is Never Touched
 
 | Component | Location | Update Method |
