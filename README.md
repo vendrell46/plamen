@@ -24,7 +24,7 @@ Supports **EVM/Solidity**, **Solana/Anchor**, **Aptos Move**, and **Sui Move**.
 
 ### Option A: Let Claude set it up (recommended)
 
-Open Claude Code and paste the contents of [`SETUP.md`](SETUP.md). Claude handles cloning, symlink installation, dependency setup, and RAG database building automatically.
+Open Claude Code and paste the contents of [`SETUP.md`](SETUP.md). Claude handles cloning, symlink installation, and dependency setup automatically. RAG database is optional and should be built separately via `plamen rag` in your terminal (requires ~6GB free RAM).
 
 ### Option B: Terminal
 

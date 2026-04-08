@@ -1,5 +1,7 @@
 # Setup Guide
 
+> **⚠️ Do NOT paste this file into Claude Code.** These are manual setup instructions meant to be followed in your terminal. Pasting into Claude Code causes it to autonomously execute the commands, including the optional RAG build which requires ~6GB free RAM and heavy CPU for several minutes.
+
 > **Just installed?** See [getting-started.md](getting-started.md) for the short version — what's required, what's optional, first audit walkthrough.
 >
 > For per-platform troubleshooting (Developer Mode, OpenSSL, Trident), see [dependencies.md](dependencies.md).
@@ -121,7 +123,7 @@ sed -i 's/"command": "python"/"command": "python3"/g' ~/.claude/mcp.json    # Li
 
 Windows users: keep `"command": "python"` as-is.
 
-### 4. Build the RAG database
+### 4. Build the RAG database (OPTIONAL — ~6GB RAM required)
 
 First, add `SOLODIT_API_KEY` to `~/.claude/settings.json` → `"env"` section:
 
@@ -151,7 +153,9 @@ python3 plamen.py rag   # macOS / Linux
 python plamen.py rag    # Windows
 ```
 
-If deps aren't installed yet, `plamen rag` installs them automatically before indexing. If the build fails partway through (network error, timeout), re-run the same command — it wipes the partial database and rebuilds from scratch.
+If deps aren't installed yet, `plamen rag` installs them automatically before indexing (downloads PyTorch ~2GB). If the build fails partway through (network error, timeout), re-run the same command — it wipes the partial database and rebuilds from scratch.
+
+> **⚠️ Resource warning**: RAG build loads PyTorch + sentence-transformers + ChromaDB. Peak RAM usage: ~4-6GB. On machines with ≤8GB RAM, close other applications first. The pipeline works without RAG — findings use code analysis + WebSearch fallback instead of historical vulnerability matching. Skip this step if resources are limited.
 
 ### 5. Verify
 

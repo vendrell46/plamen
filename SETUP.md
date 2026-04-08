@@ -2,6 +2,8 @@
 
 > **For users who prefer Claude Code to handle the entire installation.**
 > Copy everything below the line into a Claude Code session and it will set up Plamen for you.
+>
+> **⚠️ RAM Warning**: This setup does NOT build the RAG database (requires ~6GB RAM). To add RAG later, run `plamen rag` in your terminal. The pipeline works without RAG.
 
 ---
 
@@ -67,11 +69,11 @@ git submodule update --init --recursive
 
 > This clones into `~/.plamen`, keeping it separate from your Claude Code config at `~/.claude`. The installer creates symlinks — your existing settings, MCP servers, and CLAUDE.md content are preserved.
 
-## Step 2: Set API keys BEFORE installing
+## Step 2: Set API keys (optional, for later RAG use)
 
-The installer builds the RAG vulnerability database during setup. The Solodit source (3400+ audit findings — the largest single source) requires an API key. **Set this before running the installer**, otherwise Solodit indexing will be skipped and you'll get a weaker RAG database.
+The Solodit API key enables the largest vulnerability source (3400+ findings) when you build the RAG database later via `plamen rag`. This step is optional — the pipeline works without RAG.
 
-**Add `SOLODIT_API_KEY` to `~/.claude/settings.json`** (the recommended approach — makes the key available to both `plamen rag` and all audit agents):
+**Add `SOLODIT_API_KEY` to `~/.claude/settings.json`** (if you plan to build RAG later):
 
 ```json
 {
@@ -89,7 +91,7 @@ Get a free key at https://solodit.cyfrin.io.
 
 > **Why settings.json and not `export`?** Claude Code spawns audit agent subprocesses in non-interactive shells that don't source `.bashrc`/`.zshrc`. Only env vars in `settings.json`'s `env` section are reliably available to all subprocesses. A terminal `export` only works for the one `plamen rag` run you do in that terminal — audit agents won't see it.
 
-> Other API keys (Etherscan, Tavily, Helius, RPC URL) are configured AFTER install in `~/.claude/mcp.json`. Only Solodit is needed before install because the RAG indexer runs during setup.
+> Other API keys (Etherscan, Tavily, Helius, RPC URL) are configured AFTER install in `~/.claude/mcp.json`. Solodit key is only needed if you plan to build RAG later.
 
 ## Step 3: Run the installer
 
@@ -112,8 +114,9 @@ This will:
 - Merge permissions and env vars into `settings.json` (additive — won't remove your existing entries)
 - Merge MCP server definitions into `mcp.json` (won't overwrite your existing servers)
 - Inject Plamen's CLAUDE.md instructions between `<!-- PLAMEN:START -->` / `<!-- PLAMEN:END -->` markers
-- Install Python dependencies (~1GB for PyTorch + all-MiniLM-L6-v2 model)
-- Build the RAG vulnerability database (using the Solodit key from Step 2)
+- Install Python dependencies (lightweight — `rich`, `InquirerPy`, etc.)
+
+> **⚠️ IMPORTANT: Do NOT run `plamen rag` or `plamen setup` during this automated setup.** The RAG database build requires ~6GB free RAM (PyTorch + sentence-transformers + ChromaDB). On machines with ≤8GB RAM, it will freeze your system. RAG is completely OPTIONAL — the pipeline works without it using code analysis + web search fallback. If you want RAG, run `plamen rag` separately in your terminal AFTER this setup completes.
 
 ## Step 4: Configure remaining API keys
 

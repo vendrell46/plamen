@@ -1,5 +1,7 @@
 # Getting Started
 
+> **⚠️ Do NOT paste this file or setup.md into Claude Code.** Follow these instructions in your terminal. Pasting into Claude Code causes autonomous command execution including the optional RAG build (~6GB RAM).
+
 > Just installed Plamen? This page tells you exactly what to do next — what's required, what's optional, and how to run your first audit.
 
 ## What did install do?
@@ -39,12 +41,14 @@ You do **not** need all chain tools. Install only the ones for your target:
 
 > **Slither** (EVM static analysis) and **Medusa** (EVM stateful fuzzing) are recommended but optional. The pipeline works without them — it just has less static analysis coverage.
 
-### Optional: RAG vulnerability database
+### Optional: RAG vulnerability database (~6GB RAM required)
 
 RAG gives the pipeline historical vulnerability pattern matching — it searches a local database of 4k+ past audit findings (from Solodit, DeFiHackLabs, Immunefi bug bounties, and Immunefi audit competitions). The pipeline works without it (falls back to web search), but RAG improves finding quality.
 
+> **Resource warning**: RAG build loads PyTorch + sentence-transformers + ChromaDB. Peak RAM: ~4-6GB. On machines with ≤8GB total RAM, close other applications first or skip this step entirely.
+
 ```bash
-# Build the RAG database (~10-20 min, CPU intensive)
+# Build the RAG database (~10-20 min, CPU + RAM intensive)
 export SOLODIT_API_KEY=your_key_here    # free at solodit.cyfrin.io (recommended)
 plamen rag
 ```
