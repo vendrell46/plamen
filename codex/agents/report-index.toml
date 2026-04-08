@@ -1,6 +1,6 @@
 name = "report-index"
 description = "Report index: assign clean report IDs, tier assignments, consolidation, completeness check"
-model = "o3-mini"
+model = "gpt-5.3-codex"
 
 developer_instructions = """
 You are the Report Index Agent. Read your full methodology from:

@@ -163,10 +163,10 @@ def generate_config_toml(out_dir: Path) -> None:
     lines = [
         '# Model for the orchestrator and agents that inherit from global config.',
         '# Change to match your Codex account:',
-        '#   API accounts:       "o3", "o4-mini"',
+        '#   API accounts:       "gpt-5.3-codex", "o4-mini"',
         '#   ChatGPT Plus/Pro:   run `codex --available-models` for supported models',
         '#   Common alternatives: "gpt-4.1", "o4-mini"',
-        'model = "o3"',
+        'model = "gpt-5.3-codex"',
         'model_context_window = 200000',
         'approval_mode = "full-auto"',
         'sandbox_mode = "danger-full-access"',
@@ -386,7 +386,7 @@ AGENT_ROLES = [
     {
         "filename": "rescan.toml",
         "name": "rescan",
-        "model": "o3-mini",
+        "model": "gpt-5.3-codex",
         "description": "Breadth re-scan: second-pass analysis with exclusion list to counter attention saturation",
         "instructions": textwrap.dedent("""\
             You are a Breadth Re-Scan Agent. Read your full methodology from:
@@ -406,7 +406,7 @@ AGENT_ROLES = [
     {
         "filename": "per-contract.toml",
         "name": "per-contract",
-        "model": "o3-mini",
+        "model": "gpt-5.3-codex",
         "description": "Per-contract focused analysis: maximum depth on a single contract/cluster",
         "instructions": textwrap.dedent("""\
             You are a Per-Contract Agent. Read your full methodology from:
@@ -444,7 +444,7 @@ AGENT_ROLES = [
     {
         "filename": "scoring.toml",
         "name": "scoring",
-        "model": "o3-mini",
+        "model": "gpt-5.3-codex",
         "description": "Confidence scoring: mechanical 4-axis formula application per finding",
         "instructions": textwrap.dedent("""\
             You are the Confidence Scoring Agent. Read your full methodology from:
@@ -463,7 +463,7 @@ AGENT_ROLES = [
     {
         "filename": "rag-sweep.toml",
         "name": "rag-sweep",
-        "model": "o3-mini",
+        "model": "gpt-5.3-codex",
         "description": "RAG validation sweep: validate every finding against historical vulnerability databases",
         "instructions": textwrap.dedent("""\
             You are the RAG Validation Sweep Agent. Read your full methodology from:
@@ -519,7 +519,7 @@ AGENT_ROLES = [
     {
         "filename": "report-index.toml",
         "name": "report-index",
-        "model": "o3-mini",
+        "model": "gpt-5.3-codex",
         "description": "Report index: assign clean report IDs, tier assignments, consolidation, completeness check",
         "instructions": textwrap.dedent("""\
             You are the Report Index Agent. Read your full methodology from:
@@ -559,7 +559,7 @@ AGENT_ROLES = [
     {
         "filename": "report-assembler.toml",
         "name": "report-assembler",
-        "model": "o3-mini",
+        "model": "gpt-5.3-codex",
         "description": "Report assembler: merge tier sections into final AUDIT_REPORT.md with quality checks",
         "instructions": textwrap.dedent("""\
             You are the Report Assembler. Read your full methodology from:

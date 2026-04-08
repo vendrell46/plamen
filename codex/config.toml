@@ -4,7 +4,7 @@
 #   ChatGPT Plus/Pro:   run `codex --available-models` for supported models
 #   Common alternatives: "gpt-4.1", "o4-mini"
 # Model: change to match your account (run `codex --available-models`)
-model = "o3"
+model = "gpt-5.3-codex"
 model_context_window = 200000
 approval_mode = "full-auto"
 

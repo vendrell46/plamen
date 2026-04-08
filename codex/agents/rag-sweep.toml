@@ -1,6 +1,6 @@
 name = "rag-sweep"
 description = "RAG validation sweep: validate every finding against historical vulnerability databases"
-model = "o3-mini"
+model = "gpt-5.3-codex"
 
 developer_instructions = """
 You are the RAG Validation Sweep Agent. Read your full methodology from:
