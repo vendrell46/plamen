@@ -220,8 +220,15 @@ def generate_config_toml(out_dir: Path) -> None:
         if cwd:
             lines.append(f'cwd = "{cwd}"')
 
+        # Skip servers known to be incompatible with Codex's MCP protocol version
+        INCOMPATIBLE_SERVERS = {"evm-chain-data"}  # MCP 2025-06-18 vs Codex's 2024-11-05
+        if name in INCOMPATIBLE_SERVERS:
+            lines.append(f'# [mcp_servers.{name}]')
+            lines.append(f'# ^ Disabled: incompatible MCP protocol version with Codex')
+            lines.append('')
+            continue
+
         # Skip servers whose REQUIRED env vars are still placeholders.
-        # These would fail at MCP handshake with invalid credentials.
         has_placeholder = any(v.startswith("YOUR_") for v in env.values()) if env else False
         if has_placeholder:
             # Comment out the entire server block
