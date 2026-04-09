@@ -172,6 +172,7 @@ def generate_config_toml(out_dir: Path) -> None:
         'model = "gpt-5.3-codex"',
         'model_context_window = 272000',
         'approval_mode = "full-auto"',
+        'approval_policy = "never"',
         'sandbox_mode = "danger-full-access"',
         '',
         '[agents]',
