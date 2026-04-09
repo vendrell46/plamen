@@ -61,7 +61,7 @@ Set `SCRATCHPAD = {PROJECT_ROOT}/.scratchpad`.
 ## Step 3: Initialize Watchdog
 
 ```bash
-python3 ~/.codex/plamen/hooks/phase_gate.py --init {SCRATCHPAD} {MODE} {PROJECT_ROOT}
+python ~/.codex/plamen/hooks/phase_gate.py --init {SCRATCHPAD} {MODE} {PROJECT_ROOT}
 ```
 
 ## Step 4: Execute Phase Sequence
@@ -254,7 +254,7 @@ Spawn report agents sequentially per `~/.codex/plamen/rules/phase6-report-prompt
 Between each phase, verify required artifacts exist:
 
 ```bash
-python3 ~/.codex/plamen/hooks/phase_gate.py --stop
+python ~/.codex/plamen/hooks/phase_gate.py --stop
 ```
 
 If artifacts are missing, the gate will block. Complete the current phase

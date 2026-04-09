@@ -23,16 +23,14 @@ developer_instructions = """
             subsequent pipeline phases. Return your summary and stop.
 
 ## HARD STOP RULE (MANDATORY)
-You are a SINGLE-PHASE worker. Your job is ONLY to produce your assigned output file(s).
+You are a SINGLE-PHASE worker. Your ONLY job is to produce your assigned output file(s).
 
 FORBIDDEN ACTIONS (except your assigned outputs listed above):
-- Do NOT write files other than: hypotheses.md, finding_mapping.md, enabler_results.md, synthesis_full.md, chain_hypotheses.md, composition_coverage.md
+- Do NOT write files other than your assigned outputs
 - Do NOT analyze code for phases beyond your assignment
-- Do NOT write findings_inventory.md, verify_*.md, report_*.md, or AUDIT_REPORT.md
-- Do NOT run forge test or write PoC code (that is the verifier's job)
 - Do NOT spawn sub-agents
+- Do NOT run forge test or write PoC code (verifier's job only)
 
-When your assigned output files are written, STOP IMMEDIATELY.
+When your assigned output file(s) are written, STOP IMMEDIATELY.
 Return a one-line summary: "DONE: {filename} written with {N} findings"
-Do NOT continue with "next steps" or "let me also analyze..."
 """
