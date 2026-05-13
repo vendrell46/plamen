@@ -42,7 +42,7 @@ cd $HOME\.plamen; python plamen.py install
 python plamen.py install --codex     # optional: add Codex CLI backend
 ```
 
-> **Before building the RAG database**: add `SOLODIT_API_KEY` to `~/.claude/settings.json` → `"env"` section (or `~/.codex/plamen/config.toml` → `[env]` for Codex). Free key from [solodit.cyfrin.io](https://solodit.cyfrin.io). This is the only place the key is reliably visible to both `plamen rag` and audit agent subprocesses. A terminal `export` is not sufficient — Claude Code and Codex CLI spawn non-interactive subshells that don't source `.bashrc`/`.zshrc`.
+> **Before building the RAG database**: add `SOLODIT_API_KEY` to `~/.claude/settings.json` → `"env"` section (or `~/.codex/config.toml` → `[env]` for Codex). Free key from [solodit.cyfrin.io](https://solodit.cyfrin.io). This is the only place the key is reliably visible to both `plamen rag` and audit agent subprocesses. A terminal `export` is not sufficient — Claude Code and Codex CLI spawn non-interactive subshells that don't source `.bashrc`/`.zshrc`.
 >
 > Python dependencies are installed automatically on first run. On macOS/Linux use `python3`, on Windows use `python`.
 
@@ -276,13 +276,13 @@ plamen install --codex
 $plamen core /path/to/project       # inside Codex CLI
 ```
 
-Codex configuration lives in `~/.codex/plamen/` (symlinked from `~/.plamen/codex/`):
+Codex shares methodology via `~/.codex/plamen/` (symlinked to `~/.plamen/`). Config files are copied to `~/.codex/`:
 
 | Claude Code | Codex CLI | Purpose |
 |-------------|-----------|---------|
-| `~/.claude/CLAUDE.md` | `~/.codex/plamen/AGENTS.md` | Orchestrator rules |
-| `~/.claude/settings.json` | `~/.codex/plamen/config.toml` | Permissions, env vars |
-| `~/.claude/mcp.json` | `~/.codex/plamen/config.toml` `[mcp]` | MCP server definitions |
+| `~/.claude/CLAUDE.md` | `~/.codex/AGENTS.md` | Orchestrator rules |
+| `~/.claude/settings.json` | `~/.codex/config.toml` | Permissions, env vars |
+| `~/.claude/mcp.json` | N/A (Codex uses tool translation) | MCP server definitions |
 | `~/.claude/commands/` | `~/.codex/plamen/commands/` | Slash commands |
 
 ---

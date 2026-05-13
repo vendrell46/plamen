@@ -1684,15 +1684,7 @@ def _run_symlink_install(w):
         if _safe_link(mcp_src, mcp_dst, w):
             installed.append(mcp_dst)
 
-    # 7. Hooks directory (watchdog scripts — phase_gate.py, phase_manifest.json)
-    hooks_src = os.path.join(PLAMEN_HOME, "hooks")
-    hooks_dst = os.path.join(CLAUDE_HOME, "hooks")
-    if os.path.isdir(hooks_src):
-        w(f"  {_C_ORANGE}>{_RST} Linking hooks\n")
-        if _safe_link(hooks_src, hooks_dst, w):
-            installed.append(hooks_dst)
-
-    # 7b. Scripts directory (driver + modules)
+    # 7. Scripts directory (driver + modules)
     scripts_src = os.path.join(PLAMEN_HOME, "scripts")
     scripts_dst = os.path.join(CLAUDE_HOME, "scripts")
     if os.path.isdir(scripts_src):
@@ -1776,47 +1768,11 @@ def _merge_settings_json(w):
     if "defaultMode" not in existing["permissions"]:
         existing["permissions"]["defaultMode"] = plamen_perms.get("defaultMode", "acceptEdits")
 
-    # Merge hooks (additive — add hook events that don't exist, don't overwrite existing)
-    # Resolve python command for the current platform
-    _py_cmd = "python" if sys.platform == "win32" else "python3"
-    plamen_hooks = plamen.get("hooks", {})
-    if plamen_hooks:
-        # Replace placeholder python command with resolved path
-        _hooks_str = _json.dumps(plamen_hooks).replace("python3 ~/", f"{_py_cmd} ~/").replace("python ~/", f"{_py_cmd} ~/")
-        plamen_hooks = _json.loads(_hooks_str)
-        existing.setdefault("hooks", {})
-
-        def _normalize_py_cmd(cmd: str) -> str:
-            """Normalize python/python3 prefix so platform variants match."""
-            return cmd.replace("python3 ~/", "python ~/").replace("python ~/", "python ~/")
-
-        for event_name, event_hooks in plamen_hooks.items():
-            if event_name not in existing["hooks"]:
-                existing["hooks"][event_name] = event_hooks
-            else:
-                # Event exists — check if our specific hook command is already present
-                # Normalize python/python3 so re-install on a different platform
-                # replaces the old variant instead of adding a duplicate.
-                existing_cmds_norm = {}
-                for gi, group in enumerate(existing["hooks"][event_name]):
-                    for hi, h in enumerate(group.get("hooks", [])):
-                        existing_cmds_norm[_normalize_py_cmd(h.get("command", ""))] = (gi, hi)
-                for group in event_hooks:
-                    for h in group.get("hooks", []):
-                        norm = _normalize_py_cmd(h.get("command", ""))
-                        if norm in existing_cmds_norm:
-                            # Update existing hook command to use correct platform python
-                            gi, hi = existing_cmds_norm[norm]
-                            existing["hooks"][event_name][gi]["hooks"][hi]["command"] = h["command"]
-                        else:
-                            existing["hooks"][event_name].append(group)
-                            break
-
     with open(target, "w") as f:
         _json.dump(existing, f, indent=2)
         f.write("\n")
 
-    w(f"  {_C_GREEN}settings.json: merged permissions + env + hooks{_RST}\n")
+    w(f"  {_C_GREEN}settings.json: merged permissions + env{_RST}\n")
 
 
 def _merge_mcp_json(w):
@@ -2087,20 +2043,14 @@ def run_uninstall():
             # Remove Plamen env vars
             for k in plamen_settings.get("env", {}):
                 settings.get("env", {}).pop(k, None)
-            # Remove Plamen hooks
-            plamen_hook_cmds = set()
-            for event_hooks in plamen_settings.get("hooks", {}).values():
-                for group in event_hooks:
-                    for h in group.get("hooks", []):
-                        cmd = h.get("command", "")
-                        if "phase_gate.py" in cmd:
-                            plamen_hook_cmds.add(cmd)
-            if plamen_hook_cmds and "hooks" in settings:
+            # Remove legacy Plamen hooks (V1 watchdog — removed in v2.0.0)
+            if "hooks" in settings:
                 for event_name in list(settings["hooks"].keys()):
                     settings["hooks"][event_name] = [
                         group for group in settings["hooks"][event_name]
-                        if not any(h.get("command", "") in plamen_hook_cmds
-                                   or "phase_gate.py" in h.get("command", "")
+                        if not any("phase_gate.py" in h.get("command", "")
+                                   or "command_guard.py" in h.get("command", "")
+                                   or "primitive_telemetry.py" in h.get("command", "")
                                    for h in group.get("hooks", []))
                     ]
                     if not settings["hooks"][event_name]:
@@ -2140,7 +2090,7 @@ def _install_codex_adapter(w):
     1. Runs scripts/codex_adapter.py to (re)generate codex/ files
     2. Creates ~/.codex/ if it doesn't exist
     3. Symlinks ~/.codex/plamen/ → PLAMEN_HOME (shared methodology)
-    4. Copies Codex-specific files (AGENTS.md, config.toml, agents/, skills/, commands/, hooks.json)
+    4. Copies Codex-specific files (AGENTS.md, config.toml, agents/, skills/, commands/)
     """
     codex_home = os.path.normpath(os.path.expanduser("~/.codex"))
     codex_plamen = os.path.normpath(os.path.join(codex_home, "plamen"))
@@ -2171,7 +2121,7 @@ def _install_codex_adapter(w):
 
     # Step 4: Copy Codex-specific files into ~/.codex/
     items_copied = 0
-    for item in ("AGENTS.md", "config.toml", "hooks.json"):
+    for item in ("AGENTS.md", "config.toml"):
         src = os.path.join(codex_dir, item)
         dst = os.path.join(codex_home, item)
         if os.path.isfile(src):

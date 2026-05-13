@@ -543,17 +543,15 @@ When `MODE == light`, the orchestrator applies these overrides:
 
 ## Phase 1: Reconnaissance
 
-### Step 0.9: Initialize Pipeline Watchdog
+### Step 0.9: Initialize Scratchpad
 
-After creating the scratchpad directory and before spawning recon agents, initialize the watchdog:
+After creating the scratchpad directory and before spawning recon agents, ensure `violations.md` exists:
 
 ```bash
-PY_CMD=$(command -v py 2>/dev/null || command -v python3 2>/dev/null || command -v python 2>/dev/null || echo "/c/Users/$USER/AppData/Local/Programs/Python/Python312/python") && "$PY_CMD" ~/.claude/hooks/phase_gate.py --init "{scratchpad}" {MODE} "{PROJECT_PATH}"
+echo “# Plamen violations log” > “{scratchpad}/violations.md”
 ```
 
-This activates the Stop hook enforcement. The watchdog will verify artifact existence at each phase transition and block the orchestrator if mandatory steps are skipped. Non-fatal if the hook script is missing â€” the pipeline continues without enforcement.
-
-**Windows note**: On Windows with Git Bash, `python`/`python3` may resolve to the Microsoft Store stub (`WindowsApps` alias) that returns "Python was not found." The `py` launcher (Windows Python Launcher) is the reliable entry point. The fallback chain tries `py` â†’ `python3` â†’ `python` â†’ hardcoded Python312 path.
+The V2 driver (`plamen_driver.py`) handles artifact gate enforcement between phases automatically. Every workflow violation per CLAUDE.md Rule 12 is logged to `violations.md`.
 
 ### Step 1: Read Recon Prompt
 **Read full prompt from**: `~/.claude/prompts/{LANGUAGE}/phase1-recon-prompt.md`
@@ -1260,15 +1258,10 @@ Quick checks before verification:
 - [ ] Anti-normalization check applied? (Rule 13)
 - [ ] Post-verification finding extraction completed?
 
-## Codex End-Of-Run Validation
+## End-Of-Run Validation
 
-After report assembly, always run:
-
-```bash
-python ~/.codex/plamen/hooks/phase_gate.py --finalize
-python ~/.codex/plamen/hooks/phase_gate.py --validate
-```
-
-Treat `{SCRATCHPAD}/audit_validation.md` as mandatory end-of-run evidence. If
-validation fails, the run is not clean enough to claim mode correctness.
+After report assembly, the V2 driver (`plamen_driver.py`) runs artifact gate
+checks and quality validation automatically. Treat `{SCRATCHPAD}/audit_validation.md`
+as mandatory end-of-run evidence. If validation fails, the run is not clean
+enough to claim mode correctness.
 

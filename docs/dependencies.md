@@ -215,7 +215,7 @@ MCP servers are used by the Claude Code backend only. The Codex backend uses too
 | `HELIUS_API_KEY` | [helius.dev](https://helius.dev) | Solana on-chain data | Optional (free tier) |
 | RPC URL | Alchemy/Infura/public | Ethereum fork testing | Optional (free tier) |
 
-Set keys in `~/.claude/mcp.json` (Claude Code) after copying from `mcp.json.example`. Codex backend does not use MCP -- API keys for Codex are set in `~/.codex/plamen/config.toml`. See [MCP Servers](mcp-servers.md) for details.
+Set keys in `~/.claude/mcp.json` (Claude Code) after copying from `mcp.json.example`. Codex backend does not use MCP — API keys for Codex are set in `~/.codex/config.toml`. See [MCP Servers](mcp-servers.md) for details.
 
 ---
 
@@ -245,7 +245,7 @@ Restart Claude Code after editing. On Windows, keep `"command": "python"`.
 Claude Code only. ChromaDB and all-MiniLM-L6-v2 load on first use (~5s cold start). This is normal. The pipeline handles it with probe-first patterns and WebSearch fallback. The tool timeout is set to 300s in `settings.json`.
 
 ### RAG database build failed or entries count is too low
-Run `plamen rag` again — it wipes the existing database and rebuilds from scratch. Ensure `SOLODIT_API_KEY` is set in `~/.claude/settings.json` → `"env"` section (Claude Code) or `~/.codex/plamen/config.toml` → `[env]` section (Codex). Safe to re-run as many times as needed.
+Run `plamen rag` again — it wipes the existing database and rebuilds from scratch. Ensure `SOLODIT_API_KEY` is set in `~/.claude/settings.json` → `"env"` section (Claude Code) or `~/.codex/config.toml` → `[env]` section (Codex). Safe to re-run as many times as needed.
 
 ### `No IDL files found`
 Run `anchor build` or `cargo build-sbf` first to generate IDL files before `trident init`.

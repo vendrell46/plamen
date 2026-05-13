@@ -160,10 +160,10 @@ cp mcp.json.example ~/.claude/mcp.json          # if ~/.claude/mcp.json doesn't 
 cp settings.json.example ~/.claude/settings.json # if ~/.claude/settings.json doesn't exist
 
 # Codex CLI
-mkdir -p ~/.codex/plamen
-ln -s ~/.plamen ~/.codex/plamen                  # or copy
-cp codex/config.toml ~/.codex/config.toml
-cp codex/AGENTS.md ~/.codex/AGENTS.md
+mkdir -p ~/.codex
+ln -s ~/.plamen ~/.codex/plamen                  # shared methodology
+cp codex/config.toml ~/.codex/config.toml        # runtime config (copy, not symlink)
+cp codex/AGENTS.md ~/.codex/AGENTS.md            # orchestrator rules (copy, not symlink)
 ```
 
 Edit `~/.claude/mcp.json` (Claude Code) or `codex/config.toml` (Codex CLI) with your API keys. See [MCP Servers](mcp-servers.md) for details.

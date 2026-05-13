@@ -60,7 +60,7 @@ You can always build it later. Run the same command to rebuild after updates.
 
 ### Optional: API keys
 
-Set in `~/.claude/mcp.json` (Claude Code) or `~/.codex/plamen/mcp.json` (Codex CLI). Edit the file for your backend and replace the `YOUR_*` placeholders:
+Set in `~/.claude/mcp.json` (Claude Code). Codex CLI does not use MCP — API keys for Codex are set in `~/.codex/config.toml`. Replace the `YOUR_*` placeholders:
 
 | Key | What it does | Impact if missing | Get it |
 |-----|-------------|-------------------|--------|

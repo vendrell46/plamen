@@ -10,7 +10,7 @@ Usage:
     python scripts/codex_adapter.py [--output-dir codex/]
 
 Sources:
-    - hooks/phase_manifest.json    (phase/artifact specs)
+    - scripts/plamen_types.py       (phase/artifact specs)
     - settings.json.example        (MCP server configs, permissions)
     - mcp.json.example             (MCP server definitions)
     - CLAUDE.md                    (orchestrator rules)
@@ -19,7 +19,7 @@ Sources:
 NOTE: Phase 1 generator. Most output content is templated, not fully derived
 from Claude-side manifests. The following IS manifest-driven:
   - config.toml MCP servers (from mcp.json.example)
-  - hooks.json (from phase_manifest.json)
+  - Phase sequence (from plamen_types.py SC_PHASES/L1_PHASES)
   - Agent role file list (from agents/depth-*.md listing)
 The following is TEMPLATED and must be updated manually if Claude-side changes:
   - AGENTS.md orchestrator rules
@@ -135,7 +135,7 @@ def generate_agents_md(out_dir: Path) -> None:
 
     ## Phase Sequence
 
-    Follow the phase graph in `~/.codex/plamen/hooks/phase_manifest.json`:
+    Follow the phase sequence defined in `scripts/plamen_types.py` (`SC_PHASES`/`L1_PHASES`):
 
     ```
     Recon (1) -> Breadth (2) -> Inventory (3) -> [Re-scan (4)] -> [Per-contract (5)]
@@ -144,7 +144,7 @@ def generate_agents_md(out_dir: Path) -> None:
     ```
 
     Phases in brackets are mode-dependent. Each phase has required artifacts that
-    MUST exist before proceeding to the next phase (enforced by phase_gate.py).
+    MUST exist before proceeding to the next phase (enforced by `plamen_driver.py` gate checks).
 
     ## File References
 
@@ -1038,16 +1038,10 @@ def generate_skill_md(out_dir: Path) -> None:
 
     Set `SCRATCHPAD = {PROJECT_ROOT}/.scratchpad`.
 
-    ## Step 3: Initialize Watchdog
+    ## Step 3: Execute Phase Sequence
 
-    ```bash
-    python3 ~/.codex/plamen/hooks/phase_gate.py --init {SCRATCHPAD} {MODE} {PROJECT_ROOT}
-    ```
-
-    ## Step 4: Execute Phase Sequence
-
-    Read `~/.codex/plamen/hooks/phase_manifest.json` for the phase ordering and
-    artifact requirements. Execute phases in order, checking gates between phases.
+    The V2 driver (`plamen_driver.py`) handles phase sequencing, artifact gates,
+    and retry logic automatically. Execute phases in order per the driver's config.
 
     ### Phase 1: Reconnaissance (4-Agent Split)
 
@@ -1092,7 +1086,7 @@ def generate_skill_md(out_dir: Path) -> None:
     - If complete: read its `meta_buffer.md` output
     - If still running: write empty `meta_buffer.md` and proceed
     Then write `recon_summary.md` (orchestrator, not an agent).
-    Verify all required artifacts exist per phase_manifest.json.
+    Verify all required artifacts exist per the phase sequence in `plamen_types.py`.
 
     ### Phase 2: Breadth Analysis
 
@@ -1171,14 +1165,9 @@ def generate_skill_md(out_dir: Path) -> None:
 
     ## Artifact Gate Enforcement
 
-    Between each phase, verify required artifacts exist:
-
-    ```bash
-    python3 ~/.codex/plamen/hooks/phase_gate.py --stop
-    ```
-
-    If artifacts are missing, the gate will block. Complete the current phase
-    before proceeding.
+    The V2 driver enforces artifact gates between phases automatically via
+    `gate_passes()` in `plamen_driver.py`. If artifacts are missing, the driver
+    retries the phase before proceeding.
 
     ## Mode Support Status
 
@@ -1297,37 +1286,6 @@ def generate_commands(out_dir: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Generator: hooks.json
-# ---------------------------------------------------------------------------
-
-def generate_hooks_json(out_dir: Path) -> None:
-    """Generate codex/hooks.json -- Codex hook format for phase_gate.py + command_guard.py."""
-    py = "python" if sys.platform == "win32" else "python3"
-    hooks = [
-        {
-            "event": "PreToolUse",
-            "matcher": "Bash",
-            "script": f"{py} ~/.codex/plamen/hooks/command_guard.py"
-        },
-        {
-            "event": "Stop",
-            "script": f"{py} ~/.codex/plamen/hooks/phase_gate.py --stop"
-        },
-        {
-            "event": "PostToolUse",
-            "matcher": "Write|Edit",
-            "script": f"{py} ~/.codex/plamen/hooks/phase_gate.py --track-write"
-        },
-    ]
-
-    path = out_dir / "hooks.json"
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(hooks, f, indent=2)
-        f.write("\n")
-    print(f"  Generated {path.relative_to(PLAMEN_HOME)}")
-
-
-# ---------------------------------------------------------------------------
 # Generator: README.md
 # ---------------------------------------------------------------------------
 
@@ -1377,7 +1335,6 @@ def generate_readme(out_dir: Path) -> None:
     - `prompts/` -- language-specific phase prompts (recon, inventory, depth, verification)
     - `agents/` -- depth agent definitions and skill files
     - `rules/` -- finding format, confidence scoring, chain analysis, report templates
-    - `hooks/` -- phase_gate.py watchdog and phase_manifest.json
     - `custom-mcp/` -- MCP server source code
 
     ### What is Codex-specific (in this directory)
@@ -1386,11 +1343,10 @@ def generate_readme(out_dir: Path) -> None:
     - `config.toml` -- Codex main config with model, MCP server mappings
     - `agents/*.toml` -- Role TOML files for each agent type
     - `skills/plamen/SKILL.md` -- The `/plamen` orchestrator skill for Codex
-    - `hooks.json` -- Codex hook format for phase_gate.py
 
     ### Regenerating
 
-    If you update Claude-side files (CLAUDE.md, phase_manifest.json, mcp.json.example,
+    If you update Claude-side files (CLAUDE.md, mcp.json.example,
     agent definitions), regenerate the Codex files:
 
     ```bash
@@ -1400,12 +1356,12 @@ def generate_readme(out_dir: Path) -> None:
     ## Current Limitations
 
     - **Phase 1 generator**: Most adapter output content is templated, not fully
-      derived from Claude-side manifests. MCP servers (from mcp.json.example),
-      hooks (from phase_manifest.json), and agent role file lists (from
-      agents/depth-*.md) are manifest-driven. AGENTS.md orchestrator rules,
-      SKILL.md phase sequence, and agent developer_instructions are templated
-      and must be updated manually when Claude-side files change. Phase 2 goal
-      is to derive more content from CLAUDE.md and commands/plamen.md parsing.
+      derived from Claude-side manifests. MCP servers (from mcp.json.example)
+      and agent role file lists (from agents/depth-*.md) are manifest-driven.
+      AGENTS.md orchestrator rules, SKILL.md phase sequence, and agent
+      developer_instructions are templated and must be updated manually when
+      Claude-side files change. Phase 2 goal is to derive more content from
+      CLAUDE.md and commands/plamen.md parsing.
     - **Model**: Codex uses `gpt-5.3-codex` (272K context) vs Claude Code's Opus (1M context).
       Thorough mode may require more careful context management.
     - **Thorough mode parity**: Several Thorough-only features are experimental or
@@ -1414,10 +1370,6 @@ def generate_readme(out_dir: Path) -> None:
       Medusa fuzz, and finding perturbation are not yet available.
     - **MCP servers**: All servers are mapped but may need manual API key configuration
       in `config.toml` (replace `YOUR_*_API_KEY` placeholders).
-    - **Hooks**: Codex hook format may differ from Claude Code. The `hooks.json` file
-      adapts the phase_gate.py script but event names may need adjustment for your
-      Codex version. The `phase_gate.py --track-write` handler supports both
-      Claude Code and Codex payload formats.
     - **Platform**: Generated configs assume macOS/Linux (`python3`, forward slashes).
       Windows users should use WSL or adjust paths manually.
     """)
@@ -1450,7 +1402,6 @@ def main():
     generate_agent_tomls(out_dir)
     generate_skill_md(out_dir)
     generate_commands(out_dir)
-    generate_hooks_json(out_dir)
     generate_readme(out_dir)
 
     print()

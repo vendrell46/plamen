@@ -244,7 +244,7 @@ Set `LANGUAGE` to `go`, `rust`, or `mixed`. If neither found, STOP.
 
 ## Step 1.5: Phase 0.5 Bake
 
-Initialize scratchpad in the project root and arm the watchdog:
+Initialize scratchpad in the project root:
 
 ```bash
 SCRATCHPAD={PROJECT_ROOT}/.scratchpad
@@ -256,13 +256,11 @@ export PLAMEN_SCRATCHPAD="$SCRATCHPAD"
 # meta-violation (the gate that catches skips wasn't enforced).
 echo "# Plamen L1 violations log — initialized $(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$SCRATCHPAD/violations.md"
 echo "# Mode: $L1_DEPTH | Target: $PROJECT_ROOT | Commit: $(git -C "$PROJECT_ROOT" rev-parse HEAD 2>/dev/null || echo unknown)" >> "$SCRATCHPAD/violations.md"
-
-# Arm phase_gate watchdog (mode-aware artifact catalog from phase_manifest.json l1_* fields)
-python ~/.claude/hooks/phase_gate.py --init "$SCRATCHPAD" "l1-$L1_DEPTH" "$PROJECT_ROOT" 2>&1 || \
-  echo "[WATCHDOG] init failed (non-fatal) — phase_gate.py unavailable" >> "$SCRATCHPAD/violations.md"
 ```
 
-**Mandatory invariant**: `violations.md` MUST exist for the entire run. The Step 6.5 gates and the Thorough-only step gates write to it on failure. After the run, if `violations.md` contains only the two header lines and the run also skipped Thorough-mandatory steps → the orchestrator silently degraded and the watchdog enforcement is broken. This is itself a meta-violation that triggers a Round-N+1 investigation.
+The V2 driver (`plamen_driver.py`) handles artifact gate enforcement between phases automatically.
+
+**Mandatory invariant**: `violations.md` MUST exist for the entire run. The Step 6.5 gates and the Thorough-only step gates write to it on failure. After the run, if `violations.md` contains only the two header lines and the run also skipped Thorough-mandatory steps, this is a meta-violation that triggers a Round-N+1 investigation.
 
 ### 1.5a: SCIP Indexing (with reuse check)
 

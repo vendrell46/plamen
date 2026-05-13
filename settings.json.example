@@ -47,43 +47,5 @@
     "MCP_TIMEOUT": "30000",
     "MCP_TOOL_TIMEOUT": "300000"
   },
-  "hooks": {
-    "Stop": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/phase_gate.py --stop",
-            "timeout": 10,
-            "statusMessage": "Watchdog: checking phase artifacts..."
-          }
-        ]
-      }
-    ],
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/command_guard.py",
-            "timeout": 3
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write|Edit",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "python3 ~/.claude/hooks/phase_gate.py --track-write",
-            "timeout": 5,
-            "async": true
-          }
-        ]
-      }
-    ]
-  }
+  "hooks": {}
 }
