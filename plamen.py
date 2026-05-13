@@ -2521,7 +2521,12 @@ def run_doctor():
             try:
                 with open(claude_md, "r", encoding="utf-8") as f:
                     text = f.read()
-                if "<!-- PLAMEN:START -->" in text and "<!-- PLAMEN:END -->" in text:
+                # Match the canonical marker constants (`_CLAUDE_MD_START`
+                # is the long form `<!-- PLAMEN:START — managed by ... -->`;
+                # the previous short literal `<!-- PLAMEN:START -->` is
+                # never written by install, so the warn branch always fired
+                # on a healthy install).
+                if _CLAUDE_MD_START in text and _CLAUDE_MD_END in text:
                     ok("CLAUDE.md has Plamen marker block")
                 else:
                     warn("CLAUDE.md missing PLAMEN markers (re-run `plamen install`)")
@@ -2671,7 +2676,9 @@ def run_migrate():
                 text = f.read()
         except OSError:
             text = ""
-        if "<!-- PLAMEN:START -->" in text and "<!-- PLAMEN:END -->" in text:
+        # Same marker-constant fix as run_doctor — install writes the long
+        # form (`_CLAUDE_MD_START`), not the bare `<!-- PLAMEN:START -->`.
+        if _CLAUDE_MD_START in text and _CLAUDE_MD_END in text:
             w(f"  {_C_GREEN}✓{_RST} CLAUDE.md PLAMEN markers present\n")
         else:
             w(f"  {_C_ORANGE}!{_RST} CLAUDE.md PLAMEN markers missing — re-run `plamen install` to inject\n")
