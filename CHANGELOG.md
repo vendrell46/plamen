@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0] - 2026-05-13
 
+### Added (release-candidate hardening)
+- `plamen doctor` (aliases: `verify`, `check`) — fast install-verification subcommand. Checks Plamen home, PATH for `python`/`git`/`npx`/`claude`/`codex`, Python deps, `~/.claude` manifest items, `~/.codex/plamen` tree, submodule population, CLAUDE.md PLAMEN markers. Exits non-zero on hard failures; no audit run, no paid API calls. Suitable for CI smoke tests.
+- `plamen migrate` — atomic v1.x (Plamen-in-`~/.claude`) → v2.x (Plamen-in-`~/.plamen`) migration. Detects v1 markers (broad OR-heuristic across six paths), strips dangling Plamen hook entries from `settings.json`, renames or backs up, runs the non-interactive install, verifies CLAUDE.md markers.
+- `docs/glossary.md` — quick reference for pipeline / phase / breadth / depth / niche / skill / skeptic-judge / PoC / scratchpad / MCP / RAG vocabulary.
+- `.gitattributes` — forces LF on `*.sh`/`*.py`/`*.toml`/`*.md`/`*.json`/`*.yml`, CRLF on `*.bat`/`*.cmd`/`*.ps1`. Prevents `^M` interpreter errors when cloning Windows-developed working trees on Linux/macOS.
+- `.github/workflows/install-smoke.yml` — CI matrix (ubuntu / macos / windows × Python 3.11 / 3.12) running non-TTY `plamen install`, `plamen install --codex`, idempotent re-install, and `codex-adapter` rename verification on every push.
+
+### Changed (release-candidate hardening)
+- **`plamen install` split from `plamen setup`**: `install` is now pure and non-interactive (symlinks, settings merge, CLAUDE.md inject, submodules, Python deps). Safe in any context — Claude Code Bash, Codex shell, CI, headless. `setup` runs the install then the interactive toolchain wizard. In a non-TTY context, `setup` exits cleanly after the install instead of crashing on `inquirer.checkbox`.
+- **`codex/` repo dir renamed to `codex-adapter/`**: stops shadowing the Codex CLI binary when `~/.plamen` is on PATH. All references updated in `plamen.py`, `scripts/codex_adapter.py`, `.gitignore`, README, SETUP, CONTRIBUTING, and `docs/`.
+- **README**: Codex CLI prerequisite block with `~/.npm-global` user-local install snippet (avoids `sudo npm` EACCES on Homebrew). PEP 668 `--break-system-packages` callout with opt-out via `PIP_BREAK_SYSTEM_PACKAGES=0`. `--recurse-submodules` in every clone command. `install` vs `setup` vs `migrate` vs `doctor` distinction up front. Codex-vs-Claude-first guidance.
+- **SETUP.md rewritten** as a real AI-assistant install script with Step 0–5 structure, error-handling cues, expected-output anchors, and explicit "do not run `plamen setup` or `plamen rag` from this session" guards.
+- Vendored MCP servers (`custom-mcp/solana-fender/`, `custom-mcp/unified-vuln-db/`) ship MIT LICENSE files and original-authorship setup.py headers.
+
+### Fixed (release-candidate hardening)
+- `plamen` (no args), `plamen uninstall`, and the wizard path all crashed in non-TTY contexts with `OSError: [Errno 22]` from `prompt_toolkit`. All three now TTY-guard at the entry point and exit cleanly with an actionable message. `plamen uninstall` honors `PLAMEN_UNINSTALL_YES=1` for scripted environments.
+- `scripts/codex_adapter.py` generated SKILL.md with a bare `{PROJECT_ROOT}` inside an f-string, causing `NameError` on every `plamen install --codex`. Now escaped as `{{PROJECT_ROOT}}`.
+- `pip install -e custom-mcp/slither-mcp` failure on empty submodules was reported as `exit 0` ("non-critical (failed)"). Now detects empty submodules (no `setup.py` or `pyproject.toml`), emits a clear "run `git submodule update`" message, and surfaces critical failures at the end of the install loop.
+- `plamen install --codex` succeeded with no `codex` binary on PATH. Now calls `_find_codex_bin()` and warns loud with the install snippet if missing.
+- `--break-system-packages` was added silently. Now prints a one-time stderr notice; opt out with `PIP_BREAK_SYSTEM_PACKAGES=0`.
+- Dangling Plamen-owned hook entries in `~/.claude/settings.json` (from a moved/removed previous install) blocked every PreToolUse Bash invocation. `_heal_dangling_hooks()` runs as a pre-flight in `run_install()` and `run_migrate()`, strips Plamen-owned entries whose targets don't resolve, and preserves all non-Plamen hooks.
+- `docs/l1-mode/design.md` referenced a private staging branch in its header; `commands/plamen-l1.md` carried a stale "Do NOT run on production" disclaimer. Both rewritten with stable framing.
+- UTF-8/CP-1252 mojibake (`â€"`, `â€™`, `â€œ`, `âœ"`, `â—‹`) cleaned across 20+ prompt/rule/command files.
+- `scripts/write_helper.py` (0-byte stub) removed; `docs/repository-structure.md` updated to reflect the rename `codex/` → `codex-adapter/` and the removed stub.
+
 ### Added
 - **V2 Resumable Pipeline**: Python driver (`plamen_driver.py`) runs one `claude -p` subprocess per phase with automatic checkpointing. Resumes from last successful phase on crash or usage exhaustion. Launched via `/plamen-wizard` or `plamen_driver.py`.
 - **L1 Infrastructure Audit Mode**: `/plamen l1 [light|core|thorough]` for auditing blockchain node clients (consensus engines, p2p networking, mempool, RPC, validator lifecycle) in Go and Rust. 22+ injectable L1 skills, 2 new depth agents (`depth-consensus-invariant`, `depth-network-surface`), L1-specific severity matrix aligned with Immunefi v2.3, Phase 0.5 "Bake" (scip-go / rust-analyzer SCIP batch indexing), Opengrep cross-ecosystem static analysis.

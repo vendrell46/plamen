@@ -25,7 +25,7 @@ Before parsing, build and record an explicit source-file manifest:
 For each file:
 - Extract all findings from ## FINDING INDEX or scan for [{XX}-N] patterns
 - Extract ## DEPTH_TARGETS section
-- Extract Step Execution fields - flag findings with âœ— or ? without valid reasons
+- Extract Step Execution fields - flag findings with ✗ or ? without valid reasons
 - Extract Rules Applied field - flag missing rule applications
 
 ## TASK 1: Findings Inventory

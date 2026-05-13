@@ -116,8 +116,10 @@ echo 'export PATH="$HOME/.plamen:$PATH"' >> ~/.zshrc && source ~/.zshrc
 
 Then use `plamen` from anywhere:
 ```bash
-plamen                              # interactive wizard
-plamen setup                        # install tools + build RAG
+plamen                              # interactive audit wizard
+plamen doctor                       # verify install (no audit run, no API calls)
+plamen setup                        # toolchain wizard + optional RAG build
+plamen migrate                      # upgrade a v1.x install layout
 plamen rag                          # rebuild RAG database only
 plamen uninstall                    # remove Plamen symlinks
 ```

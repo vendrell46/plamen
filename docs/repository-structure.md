@@ -62,12 +62,11 @@
 │   ├── plamen_mechanical.py           # Deterministic report assembly
 │   ├── plamen_display.py              # Rich terminal UI for driver
 │   ├── codex_adapter.py               # Codex CLI backend adapter
-│   ├── recon_prepass.py               # Pre-recon static analysis
-│   └── write_helper.py               # File write utilities
+│   └── recon_prepass.py               # Pre-recon static analysis
 │
-├── codex/                             # Codex CLI backend config
+├── codex-adapter/                     # Codex CLI backend config source
 │   ├── AGENTS.md                      # Codex orchestrator config
-│   ├── config.toml                    # Codex model/MCP settings
+│   ├── config.toml                    # Codex model/MCP settings (generated)
 │   ├── commands/                      # Codex slash commands
 │   └── skills/                        # Codex skill overrides
 │

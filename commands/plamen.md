@@ -65,31 +65,31 @@ Then run a quick toolchain probe (via Bash, all in one command):
 export PATH="$HOME/.foundry/bin:$HOME/.local/share/solana/install/active_release/bin:$HOME/.avm/bin:$HOME/.cargo/bin:$HOME/.aptoscli/bin:$HOME/.local/bin:$HOME/go/bin:$PATH" && \
 echo "Toolchain:" && \
 echo -n "  Required: " && \
-(command -v claude >/dev/null 2>&1 && echo -n "âœ“claude " || echo -n "âœ—claude ") && \
-(command -v python >/dev/null 2>&1 && echo -n "âœ“python " || (command -v python3 >/dev/null 2>&1 && echo -n "âœ“python " || echo -n "âœ—python ")) && \
-(command -v npx >/dev/null 2>&1 && echo -n "âœ“npx " || echo -n "âœ—npx ") && \
-(command -v git >/dev/null 2>&1 && echo -n "âœ“git" || echo -n "âœ—git") && echo "" && \
+(command -v claude >/dev/null 2>&1 && echo -n "✓claude " || echo -n "✗claude ") && \
+(command -v python >/dev/null 2>&1 && echo -n "✓python " || (command -v python3 >/dev/null 2>&1 && echo -n "✓python " || echo -n "✗python ")) && \
+(command -v npx >/dev/null 2>&1 && echo -n "✓npx " || echo -n "✗npx ") && \
+(command -v git >/dev/null 2>&1 && echo -n "✓git" || echo -n "✗git") && echo "" && \
 echo -n "  EVM:      " && \
-(command -v forge >/dev/null 2>&1 && echo -n "âœ“forge " || echo -n "â—‹forge ") && \
-(command -v slither >/dev/null 2>&1 && echo -n "âœ“slither " || echo -n "â—‹slither ") && \
-(command -v medusa >/dev/null 2>&1 && echo -n "âœ“medusa" || echo -n "â—‹medusa") && echo "" && \
+(command -v forge >/dev/null 2>&1 && echo -n "✓forge " || echo -n "○forge ") && \
+(command -v slither >/dev/null 2>&1 && echo -n "✓slither " || echo -n "○slither ") && \
+(command -v medusa >/dev/null 2>&1 && echo -n "✓medusa" || echo -n "○medusa") && echo "" && \
 echo -n "  Solana:   " && \
-(command -v solana >/dev/null 2>&1 && echo -n "âœ“solana " || echo -n "â—‹solana ") && \
-(command -v anchor >/dev/null 2>&1 && echo -n "âœ“anchor " || echo -n "â—‹anchor ") && \
-(command -v trident >/dev/null 2>&1 && echo -n "âœ“trident" || echo -n "â—‹trident") && echo "" && \
+(command -v solana >/dev/null 2>&1 && echo -n "✓solana " || echo -n "○solana ") && \
+(command -v anchor >/dev/null 2>&1 && echo -n "✓anchor " || echo -n "○anchor ") && \
+(command -v trident >/dev/null 2>&1 && echo -n "✓trident" || echo -n "○trident") && echo "" && \
 echo -n "  Move:     " && \
-(command -v aptos >/dev/null 2>&1 && echo -n "âœ“aptos " || echo -n "â—‹aptos ") && \
-(command -v sui >/dev/null 2>&1 && echo -n "âœ“sui" || echo -n "â—‹sui") && echo "" && \
+(command -v aptos >/dev/null 2>&1 && echo -n "✓aptos " || echo -n "○aptos ") && \
+(command -v sui >/dev/null 2>&1 && echo -n "✓sui" || echo -n "○sui") && echo "" && \
 echo -n "  Soroban:  " && \
-(command -v stellar >/dev/null 2>&1 && echo -n "âœ“stellar " || echo -n "â—‹stellar ") && \
-(cargo scout-audit --version >/dev/null 2>&1 && echo -n "âœ“scout" || echo -n "â—‹scout") && echo ""
+(command -v stellar >/dev/null 2>&1 && echo -n "✓stellar " || echo -n "○stellar ") && \
+(cargo scout-audit --version >/dev/null 2>&1 && echo -n "✓scout" || echo -n "○scout") && echo ""
 ```
 
-Display the output to the user. If any required tools (claude, python, npx, git) show âœ—, warn:
+Display the output to the user. If any required tools (claude, python, npx, git) show ✗, warn:
 > **Warning**: Missing required tools. Run `plamen setup` in your terminal to install them.
 
 If optional tools are missing, note briefly:
-> Optional tools with â—‹ are not installed " the pipeline degrades gracefully but coverage may be reduced. Run `plamen setup` to install.
+> Optional tools with ○ are not installed " the pipeline degrades gracefully but coverage may be reduced. Run `plamen setup` to install.
 
 Then proceed to mode selection using `AskUserQuestion` with previews:
 

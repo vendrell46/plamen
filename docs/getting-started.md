@@ -4,6 +4,8 @@
 
 > Just installed Plamen? This page tells you exactly what to do next — what's required, what's optional, and how to run your first audit.
 
+> **First thing to run:** `plamen doctor` — verifies install (Plamen home, CLIs, Python deps, symlinks, submodules, CLAUDE.md markers) in a few seconds, exits non-zero on hard failures. No audit run, no paid API calls. See [glossary.md](glossary.md) for terminology.
+
 ## What did install do?
 
 `plamen install` (or `plamen setup`) set up:

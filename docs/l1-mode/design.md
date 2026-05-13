@@ -1,10 +1,7 @@
 # Plamen L1 Mode — Design Document
 
-> **Status**: Draft v0.4 (scope reframe — T2/T3 are in-scope, not non-goals)
+> **Status**: Design spec v0.4 — T2/T3 in-scope (see Section 3 for tier expectations).
 > **Owner**: PlamenTSV
-> **Branches**: development happens on `feat/codex-phase2-hardening` in this repo
-> (`PlamenTSV/plamen-l1-experimental`). Merges to `PlamenTSV/plamen` mainline
-> when each phase passes its benchmark targets.
 
 ## 1. Why this mode exists
 
@@ -327,7 +324,7 @@ Six weeks of fork work, organized by dependency order. **Week 1 rewritten from v
 1. **Recall ≥ 30%** on the 5-target benchmark (catching 2 of 5 root causes is the minimum signal that L1 mode is viable).
 2. **Primitives layer stable on Windows**: no MCP timeouts, no crashes, reproducible on a fresh machine.
 3. **No regression on existing modes**: existing Light/Core/Thorough modes on a known EVM target produce the same report as upstream.
-4. **All 6 weekly deliverables complete** and committed to `l1-experimental` branch.
+4. **All 6 weekly deliverables complete** and merged to mainline.
 
 If recall < 30%, stop before Phase 2 and investigate whether LLMs can meaningfully reason about this class. Option D evolution (full mode, new recon subtree, full Phase 5 rewrite) is wasted effort without evidence the core loop works.
 

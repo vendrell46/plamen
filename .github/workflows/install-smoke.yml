@@ -6,7 +6,6 @@ on:
       - main
       - feat/**
       - fix/**
-      - l1-experimental
   pull_request:
 
 jobs:

@@ -1,6 +1,6 @@
 # L1 Mode Severity Matrix
 
-> **Status**: Draft v0.2, 2026-04-10 — Immunefi verbatim integration from Round 4
+> **Version**: v0.2 — Immunefi verbatim integration
 > **Scope**: All findings produced by `/plamen l1` mode
 > **Reference**: Aligned with [Immunefi Vulnerability Severity Classification System v2.3](https://immunefi.com/immunefi-vulnerability-severity-classification-system-v2-3/) for Blockchain/DLT infrastructure.
 

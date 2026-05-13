@@ -24,7 +24,7 @@ Before parsing, build and record an explicit source-file manifest:
 
 For each file:
 - Extract all findings and DEPTH_TARGETS
-- Extract Step Execution fields - flag findings with âœ— or ? without valid reasons
+- Extract Step Execution fields - flag findings with ✗ or ? without valid reasons
 - Extract Rules Applied field - flag missing rule applications (R1-R16, SB1-SB10)
 
 ## TASK 1: Findings Inventory

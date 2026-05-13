@@ -104,10 +104,11 @@ The installer creates symlinks from `~/.plamen/` into `~/.claude/` (and `~/.code
 ### 1. Clone and initialize
 
 ```bash
-git clone https://github.com/PlamenTSV/plamen.git ~/.plamen
+git clone --recurse-submodules https://github.com/PlamenTSV/plamen.git ~/.plamen
 cd ~/.plamen
-git submodule update --init --recursive
 ```
+
+> Use `--recurse-submodules` (not "Download ZIP"). The repo ships `custom-mcp/slither-mcp/` and `custom-mcp/farofino-mcp/` as submodules — without `--recurse-submodules`, they come up empty and step 2's `pip install -e` silently fails. If you already cloned without it: `git submodule update --init --recursive`.
 
 > This clones into `~/.plamen`, keeping it separate from Claude Code's `~/.claude` (or Codex's `~/.codex/`). The installer creates symlinks so your AI runtime discovers Plamen's agents, rules, and commands. Your existing settings are preserved via additive config merging.
 
@@ -135,7 +136,7 @@ Plamen supports two AI backends. Install one or both:
 **Claude Code** (default):
 
 ```bash
-python plamen.py install        # macOS / Linux
+python3 plamen.py install       # macOS / Linux
 python plamen.py install        # Windows
 ```
 
@@ -144,7 +145,7 @@ This merges config files automatically (`settings.json`, `mcp.json`, `CLAUDE.md`
 **Codex CLI:**
 
 ```bash
-python plamen.py install --codex    # macOS / Linux
+python3 plamen.py install --codex   # macOS / Linux
 python plamen.py install --codex    # Windows
 ```
 

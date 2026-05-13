@@ -555,8 +555,8 @@ Count Depth Evidence tags ([BOUNDARY:*], [VARIATION:*], [TRACE:*]):
 
 **Mode B - All other findings** (breadth agents, chain findings, enabler findings):
 From Step Execution field:
-- Count steps marked âœ“ or âœ—(valid reason) as COMPLETE
-- Count steps marked âœ—(no reason) or ? as INCOMPLETE
+- Count steps marked ✓ or ✗(valid reason) as COMPLETE
+- Count steps marked ✗(no reason) or ? as INCOMPLETE
 - Score = COMPLETE / (COMPLETE + INCOMPLETE)
 If no Step Execution field: score = 0.3
 

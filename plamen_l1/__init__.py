@@ -9,4 +9,4 @@ See docs/l1-mode/design.md Section 5 for the full primitive layer
 specification.
 """
 
-__version__ = "0.1.0"
+__version__ = "2.0.0"
