@@ -125,6 +125,77 @@ Running `plamen install` (or `plamen install --codex`) multiple times is safe. H
 
 ---
 
+## Migrating from v1.x — safety and rollback
+
+`plamen migrate` is the recommended path from a v1.x install (Plamen
+lived directly in `~/.claude/`) to the v2.x layout (Plamen lives in
+`~/.plamen/`, symlinked into `~/.claude/`). It handles three states:
+
+| State | Detection | What migrate does |
+|-------|-----------|-------------------|
+| (a) v1.x with `.git/` in `~/.claude/` | Common case for `git clone`-based v1 installs | Strips dangling Plamen hooks from `settings.json`, then `os.rename(~/.claude → ~/.plamen)`, then runs the non-interactive install. **No backup is created** — the rename is atomic but irreversible by `migrate` itself. |
+| (b) v1.x without `.git/` (ZIP-downloaded) | No `~/.claude/.git/` | Creates a timestamped backup at `~/.plamen-backup-{YYYYMMDD-HHMMSS}/`, then tells you to re-clone the repo as `~/.plamen/`. |
+| (c) Existing v2.x layout | `~/.plamen/` already exists | Just runs the non-interactive install. |
+
+### Risks to know before running migrate
+
+**Custom files in `~/.claude/` move along with Plamen.** In state (a),
+`os.rename` moves the entire `~/.claude/` directory tree — including any
+non-Plamen agents, settings, or scratch files you put there yourself.
+After migrate, those files live under `~/.plamen/` next to the Plamen
+repo content. The install step then recreates `~/.claude/` fresh with
+only the Plamen symlinks + merged config. Your custom files are not
+lost, just relocated. If you want them back at `~/.claude/`, copy them
+out of `~/.plamen/` after migrate completes:
+
+```bash
+cp -r ~/.plamen/agents/my-custom-agent.md ~/.claude/agents/
+# etc.
+```
+
+If you want to keep them with `~/.claude/` ownership entirely, back them
+up to a separate directory **before** running migrate.
+
+**State (a) has no automatic rollback.** If `plamen install` fails after
+the rename (network error during `pip install`, submodule fetch failure,
+disk full), the directory has moved to `~/.plamen/` but the install
+isn't complete. Recovery is manual:
+
+```bash
+# 1. Verify the rename is the only thing that happened
+ls ~/.plamen/.git   # should exist
+ls ~/.claude        # should NOT exist or should be empty
+
+# 2. Decide path:
+#    Option A — finish the install
+cd ~/.plamen && python plamen.py install
+
+#    Option B — roll back to v1.x state
+mv ~/.plamen ~/.claude
+```
+
+State (b) is safe by design: the timestamped backup remains until you
+delete it. State (c) is safe because nothing destructive happens.
+
+### Manual migration alternative
+
+If you'd rather not use `plamen migrate`, the equivalent manual flow is:
+
+```bash
+# 1. Close Claude Code (and Codex CLI if running) — dangling hooks
+#    block PreToolUse Bash otherwise
+# 2. (Optional, recommended) snapshot your old install first
+cp -r ~/.claude ~/.claude-v1-backup
+# 3. Move and reinstall
+mv ~/.claude ~/.plamen
+cd ~/.plamen && python plamen.py install
+```
+
+This gives you an explicit backup before the rename, at the cost of
+disk space until you remove `~/.claude-v1-backup/`.
+
+---
+
 ## Version History
 
 See [CHANGELOG.md](../CHANGELOG.md) for what changed in each version.

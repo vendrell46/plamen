@@ -255,11 +255,17 @@ Or inside Claude Code: `/plamen` · Inside Codex CLI: `$plamen core /path/to/pro
 
 ## Audit Modes
 
-| Mode | Plan | Agents | Key Features |
-|------|------|--------|-------------|
-| **Light** | Pro | ~18-22 | Fast scan, all Sonnet, no fuzzing |
-| **Core** | Max | ~30-50 | Full depth, PoC verification for Medium+ |
-| **Thorough** | Max | ~40-100 | Iterative depth, invariant fuzzing, Medusa, skeptic-judge |
+| Mode | Plan | Agents | Indicative Cost | Key Features |
+|------|------|--------|-----------------|-------------|
+| **Light** | Pro | ~18-22 | **~$1–5** / ~10-25 min | Fast scan, all Sonnet, no fuzzing |
+| **Core** | Max | ~30-50 | **~$10–30** / ~30-90 min | Full depth, PoC verification for Medium+ |
+| **Thorough** | Max | ~40-100 | **~$30–100+** / ~1-4 hr | Iterative depth, invariant fuzzing, Medusa, skeptic-judge |
+
+> Cost / runtime are rough indicators for a ~5k-line codebase on a Claude
+> subscription. Larger codebases scale roughly linearly. The wizard runs
+> `plamen --estimate` before each audit to show a per-project number based
+> on lines, scope, and target plan — use that for budgeting. API-key users
+> (pay-as-you-go) see costs ~2–3× higher than subscription users.
 
 See [docs/audit-modes.md](docs/audit-modes.md) for the full comparison.
 
