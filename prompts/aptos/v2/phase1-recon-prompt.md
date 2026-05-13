@@ -15,7 +15,7 @@ or times out, record the failure in the relevant output file and
 continue to the next task. Never retry more than once. Partial recon is
 better than no recon.
 
-**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts â€” they're authoritative for the mechanical data they cover.
+**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts " they're authoritative for the mechanical data they cover.
 
 ## Inputs (pre-resolved by the driver)
 
@@ -46,14 +46,14 @@ call costs ONE turn. Large codebases (10k+ LOC, 30+ modules) can consume
 writing the required artifacts, the driver's gate fails and the whole
 pipeline aborts.
 
-**Rule**: In the FIRST 5â€“10 turns, write SUBSTANTIVE DRAFTS of ALL 11
+**Rule**: In the FIRST 5—10 turns, write SUBSTANTIVE DRAFTS of ALL 11
 required artifacts. A mechanical pre-pass (`recon_prepass.py`) may have
-already written some of them â€” check with `ls {SCRATCHPAD}/` FIRST and
+already written some of them " check with `ls {SCRATCHPAD}/` FIRST and
 only draft the missing ones. After drafts exist, spend remaining turns
 enriching them.
 
 The 11 required artifacts (gate will reject if any is missing). Note:
-the SC gate is uniform across all languages â€” Aptos uses the same
+the SC gate is uniform across all languages " Aptos uses the same
 `contract_inventory.md` filename as EVM (not `module_inventory.md`):
 
 | File | Status check | Minimum-valid-draft content |
@@ -74,12 +74,12 @@ the SC gate is uniform across all languages â€” Aptos uses the same
 
 | Turns | Activity |
 |---|---|
-| 1â€“2  | `ls {SCRATCHPAD}/` + top-level project inspection (Move.toml, README.md) |
-| 3â€“8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
-| 9â€“25 | Enrich design_context.md (deepest artifact) from docs + key modules |
-| 26â€“45 | Enrich template_recommendations.md with triggered skills based on attack surface |
-| 46â€“60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
-| 61â€“80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
+| 1—2  | `ls {SCRATCHPAD}/` + top-level project inspection (Move.toml, README.md) |
+| 3—8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
+| 9—25 | Enrich design_context.md (deepest artifact) from docs + key modules |
+| 26—45 | Enrich template_recommendations.md with triggered skills based on attack surface |
+| 46—60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
+| 61—80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
 
 If you reach turn 70 and have not re-written all artifacts with real
 content, STOP exploration and overwrite the remaining drafts with
@@ -265,7 +265,7 @@ Append to {SCRATCHPAD}/meta_buffer.md under '## Fork Ancestry Analysis':
    - `[dev-addresses]` and `[dev-dependencies]` -- note test-only dependencies
 7. If build fails after 3 attempts, document failure reason and continue
 
-Also run: `git rev-list --count HEAD` â€” if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
+Also run: `git rev-list --count HEAD` " if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
 
 Write to {SCRATCHPAD}/build_status.md:
 ```markdown
@@ -415,11 +415,11 @@ Write to {SCRATCHPAD}/external_interfaces.md
 
 ```
 ## Operational Implications
-State what each invariant means for how the system works â€” not what it checks,
+State what each invariant means for how the system works " not what it checks,
 but what it tells you about the system's accounting model.
 Derive these from the invariant formulas and the struct/resource definitions in the code.
 Each implication must reference specific data structure signatures or formula
-components â€” restating the invariant in different words is not an implication.
+components " restating the invariant in different words is not an implication.
 ```
 
 7. **Trust Assumption Table** (MANDATORY): From docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
@@ -581,7 +581,7 @@ Grep in .move source files (exclude build/, .aptos/, tests/):
 | `vector::.*length\|table::.*length\|smart_table\|simple_map\|big_vector` | COLLECTION_USAGE |
 | `ed25519::verify\|ed25519::signature_verify_strict\|multi_ed25519\|SignedMessage\|signature::verify\|rotate_authentication_key` | HAS_SIGNATURES |
 | `approve\|delegate\|allowance\|deposit_for\|stake_for\|delegate_to\|_on_behalf\|_for_user\|_for(.*address` (public entry functions with target address parameter writing state for that target) | MULTI_STEP_OPS |
-| External module calls to named protocols in Move.toml deps or use statements: `thala\|echelon\|aries\|liquidswap\|pancakeswap\|tortuga\|amnis\|merkle_trade\|hippo\|aptin\|cellana\|cetus\|pyth\|layerzero\|wormhole` (EXCLUDE: aptos_framework::, aptos_std::, aptos_token::, std:: â€” standard framework modules) | NAMED_EXTERNAL_PROTOCOL |
+| External module calls to named protocols in Move.toml deps or use statements: `thala\|echelon\|aries\|liquidswap\|pancakeswap\|tortuga\|amnis\|merkle_trade\|hippo\|aptin\|cellana\|cetus\|pyth\|layerzero\|wormhole` (EXCLUDE: aptos_framework::, aptos_std::, aptos_token::, std:: " standard framework modules) | NAMED_EXTERNAL_PROTOCOL |
 
 Write to {SCRATCHPAD}/detected_patterns.md:
 ```markdown
@@ -816,7 +816,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 | TEMPORAL_PARAMETER_STALENESS | TEMPORAL flag | {YES/NO} | {timestamp-based logic with cached parameters} |
 | ECONOMIC_DESIGN_AUDIT | MONETARY_PARAMETER flag | {YES/NO} | {monetary parameter setters found} |
 | EXTERNAL_PRECONDITION_AUDIT | External module calls detected | {YES/NO} | {N external module call sites} |
-| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols â€” e.g., "Thala, Liquidswap"} |
+| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols " e.g., "Thala, Liquidswap"} |
 | ORACLE_ANALYSIS | ORACLE flag | {YES/NO} | {Pyth/Switchboard patterns found} |
 | FLASH_LOAN_INTERACTION | FLASH_LOAN flag | {YES/NO} | {flash loan / hot potato patterns found} |
 | ZERO_STATE_RETURN | Vault/first-depositor pattern | {YES/NO} | {vault pattern with share calculation found} |

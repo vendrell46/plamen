@@ -29,7 +29,7 @@ Read:
 - {SCRATCHPAD}/findings_inventory.md (what WAS analyzed)
 - {SCRATCHPAD}/constraint_variables.md (governance-changeable parameters)
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (tokens, parameters, call sites, contracts) as a numbered list before analysis begins.
@@ -56,7 +56,7 @@ Applicable = the token type supports that interaction (e.g., NFTs don't have D4:
 
 ## CHECK 1b: Unchecked ERC20 Transfer Return Values (Slither fallback)
 Skip this check if `SLITHER: AVAILABLE` in build_status.md (Slither's `unchecked-transfer` detector covers this).
-Grep for raw `.transfer(` and `.transferFrom(` calls (NOT `safeTransfer`/`safeTransferFrom`) on external token addresses. For each: is the return value checked (`require(token.transfer(...))`) or is SafeERC20 used? If neither, tokens like USDT that return false on failure will silently fail â€” state updates proceed but no tokens move.
+Grep for raw `.transfer(` and `.transferFrom(` calls (NOT `safeTransfer`/`safeTransferFrom`) on external token addresses. For each: is the return value checked (`require(token.transfer(...))`) or is SafeERC20 used? If neither, tokens like USDT that return false on failure will silently fail " state updates proceed but no tokens move.
 
 | Call Site | Token | Uses SafeERC20? | Return Value Checked? | Gap? |
 |-----------|-------|-----------------|----------------------|------|
@@ -78,7 +78,7 @@ From constraint_variables.md, for each parameter with a setter function:
 - Does its setter enforce bounds? (min/max checks before writing storage)
 - Can the new value be set below accumulated state? (setter regression)
 - Is there a related parameter that must maintain coherence? (constraint coherence)
-- **Silent misconfiguration**: If the setter has NO bounds check, trace downstream math with an accepted-but-extreme value. Does the system revert, or does it silently produce wrong results? A setter that accepts any value AND downstream math silently breaks for part of the accepted range is a finding â€” even without an attacker.
+- **Silent misconfiguration**: If the setter has NO bounds check, trace downstream math with an accepted-but-extreme value. Does the system revert, or does it silently produce wrong results? A setter that accepts any value AND downstream math silently breaks for part of the accepted range is a finding " even without an attacker.
 
 ## CHECK 2b: Native Value in Loops (IF msg.value detected in scope)
 Skip this check if `msg.value` is not detected in the scoped contracts.
@@ -108,11 +108,11 @@ Grep for `gasleft()`, `meta-transaction`, `relayer`, `forwarder`, or functions t
 If a relay function forwards a user-specified call without ensuring sufficient gas remains for post-call logic â†’ FINDING (MEDIUM: relayer can be griefed into paying gas for failed txs, or insufficient gas causes silent partial execution).
 
 ## CHECK 2e: Approval/Delegate Sequence Conflicts (IF approve/safeApprove/increaseAllowance detected in scope)
-Skip this check if no `approve`, `safeApprove`, `increaseAllowance`, or `permit` patterns are detected in the scoped contracts. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Pattern | Note] â€” do NOT trace execution, compute impacts, or construct exploitation scenarios. The niche agent handles deep analysis.
+Skip this check if no `approve`, `safeApprove`, `increaseAllowance`, or `permit` patterns are detected in the scoped contracts. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Pattern | Note] " do NOT trace execution, compute impacts, or construct exploitation scenarios. The niche agent handles deep analysis.
 For each multi-step operation (batch calls, multicall, loops over tokens), enumerate all approve/increaseAllowance/safeApprove calls. If the same (spender, token) pair is approved more than once in the same sequence, verify amounts are additive or the second accounts for the first. Sequential overwrites â†’ FINDING.
 
 ## CHECK 2f: Infrastructure Address Targeting (IF depositFor/stakeFor/delegateTo detected in scope)
-Skip this check if no `depositFor`, `stakeFor`, `delegateTo`, `mintFor`, `withdrawFor`, or similar on-behalf-of function patterns are detected. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Target Param | Note] â€” do NOT trace execution or compute impacts.
+Skip this check if no `depositFor`, `stakeFor`, `delegateTo`, `mintFor`, `withdrawFor`, or similar on-behalf-of function patterns are detected. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Target Param | Note] " do NOT trace execution or compute impacts.
 For each public/external function that writes state keyed by an address parameter (e.g., `depositFor(target)`, `stakeFor(target)`, `delegateTo(target)`): can any protocol infrastructure contract (router, vault, pool, strategy) be used as the target? If yes, what state is imposed on it, and does it break protocol operations? â†’ FINDING.
 
 ## CHECK 2g: Missing Native ETH Receiver
@@ -152,7 +152,7 @@ Read:
 - {SCRATCHPAD}/function_list.md (complete function inventory)
 - {SCRATCHPAD}/state_variables.md (all state variables)
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (guards, modifiers, overrides, functions) as a numbered list before analysis begins.
@@ -238,7 +238,7 @@ Read:
 - {SCRATCHPAD}/state_variables.md (all state variables)
 - Source files for all in-scope contracts
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (roles, capabilities, functions, call paths) as a numbered list before analysis begins.
@@ -323,7 +323,7 @@ Read:
 ## INPUT FILTERING
 When cross-referencing against findings_inventory.md, focus on Medium+ severity findings only. Low/Info findings do not need cross-validation sweeps - the attention cost of processing 50+ findings outweighs the marginal value of sweeping Low/Info patterns.
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (validations, operators, guards, functions) as a numbered list before analysis begins.
@@ -420,7 +420,7 @@ or `funds.sender` is caller-supplied and passed directly to external DEX without
 
 **Untrusted call target check**: For every `InterfaceName(addr).function()` call where `addr` is decoded from calldata, function parameters, or user-supplied structs:
 1. Is `addr` validated against a registry, factory, or known-good set BEFORE being called?
-2. If NOT validated: the call target is attacker-deployable. All return values from the call are UNTRUSTED â€” an attacker can deploy a contract implementing the expected interface that returns arbitrary values to bypass validation logic.
+2. If NOT validated: the call target is attacker-deployable. All return values from the call are UNTRUSTED " an attacker can deploy a contract implementing the expected interface that returns arbitrary values to bypass validation logic.
 3. For each untrusted return value: trace how it is used downstream. If it gates access control, token movement, or accounting â†’ FINDING (High if funds at risk, Medium if DoS only).
 
 ## CHECK 6: Helper Function Call-Site Parity
@@ -474,7 +474,7 @@ For EVERY validation that protects against value loss (slippage checks, balance 
 | Validation | What It Measures | What It Should Measure | Match? |
 |-----------|-----------------|----------------------|--------|
 
-**Classification** â€” for each validation, determine:
+**Classification** " for each validation, determine:
 - Does it check ABSOLUTE state (total balance) or RELATIVE change (delta per operation)?
 - Does it check AGGREGATE result (batch total) or PER-ITEM result (individual operation)?
 - Does it check a PROXY metric (correlated value) or the DIRECT metric (actual value at risk)?
@@ -516,7 +516,7 @@ Return: 'DONE: {N} functions swept, {M} boundary issues, {K} reachability gaps, 
 ## Sibling Propagation Agent
 
 > **Trigger**: Always runs IN PARALLEL with Validation Sweep (iteration 1 only).
-> **Purpose**: Propagate confirmed root cause patterns to sibling functions. Extracted from Validation Sweep to avoid positional attention degradation (was CHECK 9 of 9 â€” highest cognitive load in worst attention position).
+> **Purpose**: Propagate confirmed root cause patterns to sibling functions. Extracted from Validation Sweep to avoid positional attention degradation (was CHECK 9 of 9 " highest cognitive load in worst attention position).
 > **Budget**: Scanner-tier (part of fixed base count, not depth budget).
 
 ```
@@ -543,7 +543,7 @@ For each Medium+ CONFIRMED or PARTIAL finding in findings_inventory.md:
 ## Output
 Write to {SCRATCHPAD}/sibling_propagation_findings.md
 Use finding IDs [SP-1], [SP-2], etc. with standard finding format.
-Maximum 8 findings â€” prioritize by severity.
+Maximum 8 findings " prioritize by severity.
 
 ## Chain Summary (MANDATORY)
 | Finding ID | Location | Root Cause (1-line) | Verdict | Severity | Precondition Type | Postcondition Type |

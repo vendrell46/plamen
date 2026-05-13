@@ -12,7 +12,12 @@ Supports **EVM/Solidity**, **Solana/Anchor**, **Aptos Move**, **Sui Move**, **So
 
 [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code) or [OpenAI Codex CLI](https://github.com/openai/codex), [Python 3.11-3.12](https://python.org) + pip, [Node.js 18+](https://nodejs.org), [Git](https://git-scm.com)
 
-> **Backend CLIs.** Install at least one:
+> **Backend CLIs.** Install at least one. If you only have time to install
+> one, pick **Claude Code** — it has the broadest MCP support (Slither,
+> ChromaDB, Solodit). Codex is a strong alternative when you'd rather use
+> OpenAI models, but pure-LLM phases fall back to WebSearch where MCPs aren't
+> available. You can install both side-by-side; the audit wizard lets you
+> pick per-run.
 >
 > - **Claude Code**:
 >   ```bash
@@ -192,6 +197,11 @@ pip install -r custom-mcp/farofino-mcp/requirements.txt
 pip install -e custom-mcp/slither-mcp              # EVM only (needs Python 3.11+)
 
 # 2. Build RAG database (~5 min)
+# IMPORTANT: a `export SOLODIT_API_KEY=...` here works for this terminal only.
+# For `plamen rag` and audit agents to see it later, put the key in
+# ~/.claude/settings.json -> "env" (Claude Code) or ~/.codex/config.toml -> [env]
+# (Codex CLI). See the callout above. Below uses an inline export so this manual
+# loop completes in one shell:
 export SOLODIT_API_KEY=your_key_here                # free at solodit.cyfrin.io
 cd custom-mcp/unified-vuln-db
 python3 -m unified_vuln.indexer index -s solodit --max-pages 10
@@ -363,6 +373,7 @@ Language detection is automatic based on config files.
 
 | Topic | Link |
 |-------|------|
+| Glossary of terms | [docs/glossary.md](docs/glossary.md) |
 | Full setup guide | [docs/setup.md](docs/setup.md) |
 | Updating after git pull | [docs/updating.md](docs/updating.md) |
 | Platform dependencies | [docs/dependencies.md](docs/dependencies.md) |

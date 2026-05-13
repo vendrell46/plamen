@@ -15,7 +15,7 @@ scout-audit) fails or times out, record the failure in the relevant
 output file and continue to the next task. Never retry more than once.
 Partial recon is better than no recon.
 
-**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts â€” they're authoritative for the mechanical data they cover.
+**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts " they're authoritative for the mechanical data they cover.
 
 ## Inputs (pre-resolved by the driver)
 
@@ -46,9 +46,9 @@ consume 50+ turns on exploration alone. If you hit the cap or timeout
 without writing the required artifacts, the driver's gate fails and the
 whole pipeline aborts.
 
-**Rule**: In the FIRST 5â€“10 turns, write SUBSTANTIVE DRAFTS of ALL 11
+**Rule**: In the FIRST 5—10 turns, write SUBSTANTIVE DRAFTS of ALL 11
 required artifacts. A mechanical pre-pass (`recon_prepass.py`) may have
-already written some of them â€” check with `ls {SCRATCHPAD}/` FIRST and
+already written some of them " check with `ls {SCRATCHPAD}/` FIRST and
 only draft the missing ones. After drafts exist, spend remaining turns
 enriching them.
 
@@ -72,12 +72,12 @@ The 11 required artifacts (gate will reject if any is missing):
 
 | Turns | Activity |
 |---|---|
-| 1â€“2  | `ls {SCRATCHPAD}/` + top-level project inspection (Cargo.toml, README.md, soroban-sdk in deps) |
-| 3â€“8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
-| 9â€“25 | Enrich design_context.md (deepest artifact) from docs + key contracts |
-| 26â€“45 | Enrich template_recommendations.md with triggered skills based on attack surface |
-| 46â€“60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
-| 61â€“80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
+| 1—2  | `ls {SCRATCHPAD}/` + top-level project inspection (Cargo.toml, README.md, soroban-sdk in deps) |
+| 3—8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
+| 9—25 | Enrich design_context.md (deepest artifact) from docs + key contracts |
+| 26—45 | Enrich template_recommendations.md with triggered skills based on attack surface |
+| 46—60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
+| 61—80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
 
 If you reach turn 70 and have not re-written all artifacts with real
 content, STOP exploration and overwrite the remaining drafts with
@@ -169,7 +169,7 @@ Execute all 4 steps with Soroban-specific parent detection:
    - If `overflow-checks = false` â†’ document `OVERFLOW_SAFE: false` AND set flag `SOROBAN_OVERFLOW_UNSAFE`
    - If `[profile.release]` section exists but `overflow-checks` is absent â†’ document `OVERFLOW_SAFE: MISSING` AND set flag `SOROBAN_OVERFLOW_UNSAFE`
    - If `[profile.release]` section is entirely absent â†’ document `OVERFLOW_SAFE: MISSING` AND set flag `SOROBAN_OVERFLOW_UNSAFE`
-   **WHY CRITICAL**: Soroban compiles to Wasm. Without `overflow-checks = true` in the release profile, ALL integer arithmetic (addition, subtraction, multiplication) silently wraps on overflow in production Wasm builds. Debug builds panic on overflow but release Wasm does not â€” this is a silent correctness difference that affects every arithmetic operation in the contract.
+   **WHY CRITICAL**: Soroban compiles to Wasm. Without `overflow-checks = true` in the release profile, ALL integer arithmetic (addition, subtraction, multiplication) silently wraps on overflow in production Wasm builds. Debug builds panic on overflow but release Wasm does not " this is a silent correctness difference that affects every arithmetic operation in the contract.
 1d. **Dependency Recovery** (before first build attempt):
    - Run `git submodule update --init --recursive`
    - Run `cargo fetch` to pre-download crate dependencies
@@ -189,7 +189,7 @@ Execute all 4 steps with Soroban-specific parent detection:
    - `[profile.release] overflow-checks = true` (documented in step 1c above)
 6. If build fails after 3 attempts, document failure and continue
 
-Also run: `git rev-list --count HEAD` â€” if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
+Also run: `git rev-list --count HEAD` " if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
 
 Write to {SCRATCHPAD}/build_status.md:
 ```markdown
@@ -209,7 +209,7 @@ Write to {SCRATCHPAD}/build_status.md:
 ## TASK 2: Static Analysis Artifacts
 
 ### Scout (CoinFabrik) Fail-Fast Policy
-Scout is the primary static analysis tool for Soroban. It is a CLI tool â€” NOT an MCP server.
+Scout is the primary static analysis tool for Soroban. It is a CLI tool " NOT an MCP server.
 Run it directly via Bash. It has 23 detectors covering Soroban-specific patterns.
 
 **Procedure**:
@@ -266,11 +266,11 @@ Write to {SCRATCHPAD}/modifiers.md
 
 ```
 ## Operational Implications
-State what each invariant means for how the system works â€” not what it checks,
+State what each invariant means for how the system works " not what it checks,
 but what it tells you about the system's accounting model.
 Derive these from the invariant formulas and the storage struct definitions in the code.
 Each implication must reference specific data structure signatures or formula
-components â€” restating the invariant in different words is not an implication.
+components " restating the invariant in different words is not an implication.
 ```
 
 6. **Trust Assumption Table** (MANDATORY): From ASSUMPTIONS.txt, docs, README, code comments, and access control patterns (require_auth / require_auth_for_args), extract ALL trust assumptions into a structured table in design_context.md:
@@ -357,7 +357,7 @@ Grep in contract .rs files (exclude target/, tests/, node_modules/, .stellar/):
 | `approve\|transfer_from\|allowance\|expiration_ledger` | SEP41_ALLOWANCE |
 | `panic!\|panic_with_error!\|unwrap()` | PANIC_PATTERNS |
 | (2+ contract crates in Cargo workspace members within scope) | HAS_MULTI_CONTRACT |
-| CPI targets to known protocol contract addresses or named crates: `soroswap\|phoenix\|blend\|aquarius\|comet` (EXCLUDE: soroban-sdk, soroban-token-sdk, stellar-xdr â€” standard SDK crates) | NAMED_EXTERNAL_PROTOCOL |
+| CPI targets to known protocol contract addresses or named crates: `soroswap\|phoenix\|blend\|aquarius\|comet` (EXCLUDE: soroban-sdk, soroban-token-sdk, stellar-xdr " standard SDK crates) | NAMED_EXTERNAL_PROTOCOL |
 | `deposit_for\|stake_for\|delegate_to\|mint_for\|withdraw_for\|on_behalf_of` (public functions writing state for a caller-provided Address target) | MULTI_STEP_OPS |
 
 Write to {SCRATCHPAD}/detected_patterns.md
@@ -429,12 +429,12 @@ Write to {SCRATCHPAD}/test_results.md
 
 ## TASK 10: Template Recommendations
 
-### Soroban-Specific Skills (in ~/.claude/agents/skills/soroban/ â€” create as needed)
+### Soroban-Specific Skills (in ~/.claude/agents/skills/soroban/ " create as needed)
 - AUTH_ANALYSIS -- **ALWAYS required** (require_auth coverage, auth tree propagation across invoke_contract, admin checks)
 - STORAGE_LIFECYCLE -- TEMPORAL or PERSISTENT_STORAGE flag (TTL extension completeness, expiry handling, Instance storage size bounds; alias: STORAGE_TTL_SAFETY)
 - UPGRADE_SAFETY -- SOROBAN_UNPROTECTED_UPGRADE flag (update_current_contract_wasm guard, post-upgrade state validity)
 
-### Shared Templates (in ~/.claude/agents/skills/ â€” use soroban-adapted versions)
+### Shared Templates (in ~/.claude/agents/skills/ " use soroban-adapted versions)
 - SEMI_TRUSTED_ROLES, TOKEN_FLOW_TRACING, SHARE_ALLOCATION_FAIRNESS, TEMPORAL_PARAMETER_STALENESS
 - ECONOMIC_DESIGN_AUDIT, EXTERNAL_PRECONDITION_AUDIT (adapted for cross-contract calls)
 - EXTERNAL_PRECONDITION_AUDIT (covers Soroban oracle integrations via ORACLE flag), FLASH_LOAN_INTERACTION
@@ -453,7 +453,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 
 | Template | Pattern Trigger | Required? | Reason |
 |----------|-----------------|-----------|--------|
-| AUTH_ANALYSIS | Always (Soroban) | YES | Foundational Soroban security â€” require_auth coverage |
+| AUTH_ANALYSIS | Always (Soroban) | YES | Foundational Soroban security " require_auth coverage |
 | STORAGE_LIFECYCLE | TEMPORAL or PERSISTENT_STORAGE or TEMPORARY_STORAGE flag | {YES/NO} | {storage pattern details} |
 | UPGRADE_SAFETY | SOROBAN_UNPROTECTED_UPGRADE flag | {YES/NO} | {update_current_contract_wasm found} |
 | SEMI_TRUSTED_ROLES | SEMI_TRUSTED_ROLE flag | {YES/NO} | {admin/owner/role patterns} |
@@ -462,7 +462,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 | TEMPORAL_PARAMETER_STALENESS | TEMPORAL flag | {YES/NO} | {ledger timestamp/sequence-dependent patterns} |
 | ECONOMIC_DESIGN_AUDIT | MONETARY_PARAMETER flag | {YES/NO} | {fee/rate/reward parameter setters found} |
 | EXTERNAL_PRECONDITION_AUDIT | CROSS_CONTRACT flag | {YES/NO} | {N cross-contract call targets} |
-| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols â€” e.g., "Soroswap, Phoenix"} |
+| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols " e.g., "Soroswap, Phoenix"} |
 | EXTERNAL_PRECONDITION_AUDIT | ORACLE flag | {YES/NO} | {oracle integration patterns found} |
 | FLASH_LOAN_INTERACTION | FLASH_LOAN flag | {YES/NO} | {flash loan patterns found} |
 | ZERO_STATE_RETURN | Vault/first-depositor | {YES/NO} | {vault/share pattern found} |
@@ -521,7 +521,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 - **Total Required Breadth Agents**: {count of YES in skill templates}
 - **Total Required Niche Agents**: {count of YES in niche agents}
 - **Total Optional Agents**: {count of NO with recommendation}
-- **SOROBAN_OVERFLOW_UNSAFE**: {YES/NO} â€” if YES, ALL depth agents must treat arithmetic as suspect
+- **SOROBAN_OVERFLOW_UNSAFE**: {YES/NO} " if YES, ALL depth agents must treat arithmetic as suspect
 - **HARD GATE**: Orchestrator MUST spawn agent for each REQUIRED template AND each REQUIRED niche agent
 ```
 
@@ -537,8 +537,8 @@ For EACH critical external contract the protocol invokes via env.invoke_contract
 2. **Verify contract identity**: Cross-reference against known Soroban contracts (Stellar Asset Contract SAC, SEP-41 token, Soroswap, Phoenix, Blend)
 3. **Check hardcoded vs dynamic**: Is the cross-contract call target hardcoded or loaded from storage? If from storage, who can change it?
 4. **invoke vs try_invoke distinction**: Document whether each cross-contract call uses:
-   - `env.invoke_contract()` â€” TRAPS the Wasm VM on error, entire transaction reverts. No error recovery.
-   - `env.try_invoke_contract()` â€” Returns `Result`, allows error handling. Preferred for external calls.
+   - `env.invoke_contract()` " TRAPS the Wasm VM on error, entire transaction reverts. No error recovery.
+   - `env.try_invoke_contract()` " Returns `Result`, allows error handling. Preferred for external calls.
    - Flag any `env.invoke_contract()` calls to unverified/untrusted contracts as HIGH risk.
 5. **Stellar Asset Contract (SAC)**: Check if the protocol interacts with SAC-wrapped Stellar classic assets.
    - SAC allows unauthorized transfers if the calling contract is the asset issuer
@@ -568,7 +568,7 @@ Write to {SCRATCHPAD}/recon_summary.md:
 4. **Public Functions**: {count}
 5. **External Contract Dependencies**: {count} -- {names}
 6. **Detected Patterns**: {list flags}
-7. **Overflow Safety**: {SAFE (overflow-checks=true) / UNSAFE (missing or false) â€” CRITICAL if UNSAFE}
+7. **Overflow Safety**: {SAFE (overflow-checks=true) / UNSAFE (missing or false) " CRITICAL if UNSAFE}
 8. **Upgrade Path**: {protected/UNPROTECTED/none}
 9. **Recommended Templates**: {list with brief reason each}
 10. **Scout Status**: {available/unavailable}

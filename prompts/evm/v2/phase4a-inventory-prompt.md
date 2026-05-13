@@ -192,7 +192,7 @@ Write to {SCRATCHPAD}/file_coverage.md:
 |------------|------------------------|--------------|
 
 List any UNCOVERED source files (zero references in any analysis output) under:
-## Uncovered Files â€” add these to depth_candidates.md as scope gap targets, domain by contract purpose.
+## Uncovered Files " add these to depth_candidates.md as scope gap targets, domain by contract purpose.
 
 ## TASK 4.5: Quick Chain Pre-Scan (Dependency-Aware Severity)
 
@@ -230,7 +230,7 @@ Write to `{SCRATCHPAD}/state_dependency_map.md`:
 |----------|----------------|-------------------|---------------------------|
 
 **Rules**:
-- Step 1 is deterministic â€” emit ALL pairs from Slither output before filtering
+- Step 1 is deterministic " emit ALL pairs from Slither output before filtering
 - Cap Step 2 at 30 rows. Prioritize: critical consumers (settlement, withdrawal, claim, liquidation) first
 - Omit trivially safe pairs (both share the same access-control modifier AND the writer cannot set an invalid value)
 - The "Can Writer Break Consumer?" column is a YES/NO with a 1-phrase reason. YES entries become depth agent investigation targets

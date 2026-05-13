@@ -6,13 +6,13 @@ description: "Launch Plamen security audit pipeline. Usage: /plamen [core|thorou
 
 ## Orchestration Protocol
 
-**MANDATORY**: Before starting any audit work, read and apply `~/.claude/rules/orchestrator-rules.md`. It contains the AUDIT MODES table, CRITICAL RULES 1-16, and the orchestration architecture. You are the orchestrator â€” those rules govern how you spawn agents, manage phases, and enforce completeness.
+**MANDATORY**: Before starting any audit work, read and apply `~/.claude/rules/orchestrator-rules.md`. It contains the AUDIT MODES table, CRITICAL RULES 1-16, and the orchestration architecture. You are the orchestrator " those rules govern how you spawn agents, manage phases, and enforce completeness.
 
 ## Step 0: Interactive Setup Wizard
 
 **Shortcut handling**: Parse `$ARGUMENTS` for pre-filled values:
 - If it contains "light", "core", or "thorough", set `MODE` accordingly.
-- **If it contains "l1" (L1 infrastructure audit mode, experimental)**: set `MODE=l1` and **delegate the entire audit flow to `~/.claude/commands/plamen-l1.md`**. Read that file and follow its instructions from Step 0 onwards. This file (plamen.md) covers smart-contract modes only. Do NOT attempt to run L1 audits through the smart-contract pipeline â€” the phase shape, depth roles, skill set, and verification protocol are all different. L1-specific wizard, Phase 0.5 Bake, layer-decomposed recon/breadth, new depth agent roles (depth-consensus-invariant, depth-network-surface), removed Phase 4c, and the new evidence-tag verification live in `plamen-l1.md`.
+- **If it contains "l1" (L1 infrastructure audit mode, experimental)**: set `MODE=l1` and **delegate the entire audit flow to `~/.claude/commands/plamen-l1.md`**. Read that file and follow its instructions from Step 0 onwards. This file (plamen.md) covers smart-contract modes only. Do NOT attempt to run L1 audits through the smart-contract pipeline " the phase shape, depth roles, skill set, and verification protocol are all different. L1-specific wizard, Phase 0.5 Bake, layer-decomposed recon/breadth, new depth agent roles (depth-consensus-invariant, depth-network-surface), removed Phase 4c, and the new evidence-tag verification live in `plamen-l1.md`.
 - If it contains an absolute path (e.g., `D:\...` or `/home/...`), set `PROJECT_PATH` to that path. Otherwise use cwd.
 - If it contains `docs:` followed by a path or URL, set `DOCS_PATH` to that value and skip Step 0c.
 - If it contains `nodocs`, set `DOCS_PATH` to empty and skip Step 0c.
@@ -20,9 +20,9 @@ description: "Launch Plamen security audit pipeline. Usage: /plamen [core|thorou
 - If it contains `scope:` followed by a file path, set `SCOPE_FILE` to that path. The file should list in-scope contracts/files.
 - If it contains `notes:` followed by text (up to end of arguments or next known prefix), set `SCOPE_NOTES` to that text. Passed to recon as additional audit context (e.g., "focus on vault module, ignore governance").
 - If it contains `proven-only:` followed by `true` (or just `proven-only: true`), set `PROVEN_ONLY = true`. When enabled, findings whose best evidence is `[CODE-TRACE]` (no executed PoC or fuzzer counterexample) are capped at Low severity in the report. Default: false.
-- If it contains `wrapper-launch`, set `LAUNCHED_FROM_WRAPPER = true`. The user already confirmed the launch in the terminal wrapper â€” skip Step 0d (cost estimate + confirmation) entirely and jump directly to Step 1 (language detection). Do NOT show a second confirmation prompt.
-- If MODE, PROJECT_PATH, DOCS_PATH (or nodocs), AND `proven-only:` are all resolved AND `wrapper-launch` is present, skip the ENTIRE wizard â€” jump directly to Step 1 (language detection). No cost estimate, no confirmation.
-- If MODE, PROJECT_PATH, DOCS_PATH (or nodocs), AND `proven-only:` are all resolved but NO `wrapper-launch`, skip the wizard â€” jump to "Step 0d: Cost Estimate + Launch Confirmation".
+- If it contains `wrapper-launch`, set `LAUNCHED_FROM_WRAPPER = true`. The user already confirmed the launch in the terminal wrapper " skip Step 0d (cost estimate + confirmation) entirely and jump directly to Step 1 (language detection). Do NOT show a second confirmation prompt.
+- If MODE, PROJECT_PATH, DOCS_PATH (or nodocs), AND `proven-only:` are all resolved AND `wrapper-launch` is present, skip the ENTIRE wizard " jump directly to Step 1 (language detection). No cost estimate, no confirmation.
+- If MODE, PROJECT_PATH, DOCS_PATH (or nodocs), AND `proven-only:` are all resolved but NO `wrapper-launch`, skip the wizard " jump to "Step 0d: Cost Estimate + Launch Confirmation".
 - If MODE, PROJECT_PATH, and DOCS_PATH (or nodocs) are resolved but `scope:` and `proven-only:` are NOT specified, skip to Step 0c.5 (scope selection).
 - If MODE is set but docs status is unknown (no `docs:` and no `nodocs`), skip to Step 0c only.
 - If `$ARGUMENTS` contains "compare", jump directly to the compare flow (Step 0e). If it also contains `report:` followed by a file path, set `REPORT_PATH`. If it contains `ground_truth:` followed by a file path, set `GROUND_TRUTH_PATH`. If both are set, skip the interactive file selection in Step 0e and proceed directly.
@@ -43,7 +43,7 @@ First, output the banner as text (no tool calls):
 
 **Web3 Security Auditor** v2.0.0
 
-### Version Check (MANDATORY â€” run before toolchain probe)
+### Version Check (MANDATORY " run before toolchain probe)
 
 Read the VERSION file and compare against the version in your CLAUDE.md context:
 
@@ -89,7 +89,7 @@ Display the output to the user. If any required tools (claude, python, npx, git)
 > **Warning**: Missing required tools. Run `plamen setup` in your terminal to install them.
 
 If optional tools are missing, note briefly:
-> Optional tools with â—‹ are not installed â€” the pipeline degrades gracefully but coverage may be reduced. Run `plamen setup` to install.
+> Optional tools with â—‹ are not installed " the pipeline degrades gracefully but coverage may be reduced. Run `plamen setup` to install.
 
 Then proceed to mode selection using `AskUserQuestion` with previews:
 
@@ -101,23 +101,23 @@ AskUserQuestion(questions=[{
   options: [
     {
       label: "Light (Pro plan)",
-      description: "Lightweight audit â€” all Sonnet agents, fits Pro rate limits",
-      preview: "~18-22 agents (all Sonnet/Haiku â€” no Opus)\n\nPipeline:\n  Recon (2) â†’ Breadth (3-4) â†’ Inventory\n  â†’ Depth (4 merged) â†’ Chain (1)\n  â†’ Verify Medium+ â†’ Report ALL (2)\n\nReports all severities. PoC verification targets Medium+.\n\nSkips:\n  Â· RAG meta-buffer + fork ancestry\n  Â· Semantic invariants (state consistency\n    bugs harder to detect â€” use Core for\n    DeFi protocols with complex state)\n  Â· Niche agents\n  Â· Confidence scoring + RAG Sweep\n  Â· Invariant/Medusa fuzz\n\nBest for: Pro plan, codebases < 3000 lines"
+      description: "Lightweight audit " all Sonnet agents, fits Pro rate limits",
+      preview: "~18-22 agents (all Sonnet/Haiku " no Opus)\n\nPipeline:\n  Recon (2) â†’ Breadth (3-4) â†’ Inventory\n  â†’ Depth (4 merged) â†’ Chain (1)\n  â†’ Verify Medium+ â†’ Report ALL (2)\n\nReports all severities. PoC verification targets Medium+.\n\nSkips:\n  · RAG meta-buffer + fork ancestry\n  · Semantic invariants (state consistency\n    bugs harder to detect " use Core for\n    DeFi protocols with complex state)\n  · Niche agents\n  · Confidence scoring + RAG Sweep\n  · Invariant/Medusa fuzz\n\nBest for: Pro plan, codebases < 3000 lines"
     },
     {
       label: "Core (Recommended)",
-      description: "Standard audit â€” reports all severities, PoC-verifies Medium+",
-      preview: "~30-50 agents (requires Max plan)\n\nPipeline:\n  Breadth (5-9) â†’ Inventory â†’ Depth (iter 1)\n  â†’ Niche agents â†’ Chains â†’ Verify Medium+\n  â†’ Report ALL\n\nReports all severities (Low/Info included).\nPoC verification targets Medium+ findings.\n\nSkips:\n  Â· Breadth re-scan (3b/3c)\n  Â· Depth iterations 2-3\n  Â· Design stress testing\n  Â· Invariant fuzz campaign\n  Â· Fuzz variants in verification\n\nScoring: 2-axis (Evidence + Analysis Quality)"
+      description: "Standard audit " reports all severities, PoC-verifies Medium+",
+      preview: "~30-50 agents (requires Max plan)\n\nPipeline:\n  Breadth (5-9) â†’ Inventory â†’ Depth (iter 1)\n  â†’ Niche agents â†’ Chains â†’ Verify Medium+\n  â†’ Report ALL\n\nReports all severities (Low/Info included).\nPoC verification targets Medium+ findings.\n\nSkips:\n  · Breadth re-scan (3b/3c)\n  · Depth iterations 2-3\n  · Design stress testing\n  · Invariant fuzz campaign\n  · Fuzz variants in verification\n\nScoring: 2-axis (Evidence + Analysis Quality)"
     },
     {
       label: "Thorough",
-      description: "Deep audit â€” iterative depth, fuzz variants, re-scan",
-      preview: "~40-100 agents (requires Max plan)\n\nPipeline:\n  Breadth (5-9) â†’ Re-scan (2 iters) â†’ Per-contract\n  â†’ Inventory â†’ Depth (1-3 iters, Devil's Advocate)\n  â†’ Niche agents (up to 8) â†’ Chains\n  â†’ Verify ALL severities (with fuzz)\n  â†’ Skeptic-Judge for HIGH/CRIT\n\nIncludes:\n  Â· Breadth re-scan + per-contract analysis\n  Â· Invariant fuzz campaign (EVM)\n  Â· Medusa stateful fuzzing (EVM, if installed)\n  Â· Design stress testing (unconditional)\n  Â· Skeptic-Judge adversarial verification (HIGH/CRIT)\n  Â· Fuzz variants in verification\n  Â· Low/Info findings verified\n  Â· Cross-batch consistency check\n\nScoring: 4-axis (Evidence, Consensus, Quality, RAG)"
+      description: "Deep audit " iterative depth, fuzz variants, re-scan",
+      preview: "~40-100 agents (requires Max plan)\n\nPipeline:\n  Breadth (5-9) â†’ Re-scan (2 iters) â†’ Per-contract\n  â†’ Inventory â†’ Depth (1-3 iters, Devil's Advocate)\n  â†’ Niche agents (up to 8) â†’ Chains\n  â†’ Verify ALL severities (with fuzz)\n  â†’ Skeptic-Judge for HIGH/CRIT\n\nIncludes:\n  · Breadth re-scan + per-contract analysis\n  · Invariant fuzz campaign (EVM)\n  · Medusa stateful fuzzing (EVM, if installed)\n  · Design stress testing (unconditional)\n  · Skeptic-Judge adversarial verification (HIGH/CRIT)\n  · Fuzz variants in verification\n  · Low/Info findings verified\n  · Cross-batch consistency check\n\nScoring: 4-axis (Evidence, Consensus, Quality, RAG)"
     },
     {
       label: "Compare",
       description: "Diff a past Plamen report against a ground truth report",
-      preview: "Post-audit improvement mode\n\nYou provide:\n  Â· Your Plamen audit report\n  Â· A ground truth / reference report\n\nOutputs:\n  Â· Finding alignment matrix\n  Â· Recall & precision metrics\n  Â· Root cause classification\n  Â· Targeted methodology improvements"
+      preview: "Post-audit improvement mode\n\nYou provide:\n  · Your Plamen audit report\n  · A ground truth / reference report\n\nOutputs:\n  · Finding alignment matrix\n  · Recall & precision metrics\n  · Root cause classification\n  · Targeted methodology improvements"
     }
   ]
 }])
@@ -155,7 +155,7 @@ Use `AskUserQuestion` to ask about documentation:
 
 ```
 AskUserQuestion(questions=[{
-  question: "Do you have project docs that describe trust roles or actor permissions? (used to calibrate finding severity â€” e.g., 'admin is a 5/7 multisig with timelock')",
+  question: "Do you have project docs that describe trust roles or actor permissions? (used to calibrate finding severity " e.g., 'admin is a 5/7 multisig with timelock')",
   header: "Docs",
   multiSelect: false,
   options: [
@@ -213,13 +213,13 @@ Use `AskUserQuestion` to ask about severity strictness:
 
 ```
 AskUserQuestion(questions=[{
-  question: "Enable proven-only mode? (findings without executed PoC evidence are capped at Low severity â€” useful for benchmark comparisons)",
+  question: "Enable proven-only mode? (findings without executed PoC evidence are capped at Low severity " useful for benchmark comparisons)",
   header: "Proven-Only",
   multiSelect: false,
   options: [
     {
       label: "No (default)",
-      description: "Standard severity rules â€” manual code traces can support any severity"
+      description: "Standard severity rules " manual code traces can support any severity"
     },
     {
       label: "Yes",
@@ -233,7 +233,7 @@ If "Yes", set `PROVEN_ONLY = true`.
 
 ### Step 0d: Cost Estimate + Launch Confirmation
 
-Before starting the pipeline, get a cost estimate by calling `plamen.py`'s `estimate_cost()` function directly via Bash. Do NOT calculate costs manually â€” the Python function is the single source of truth.
+Before starting the pipeline, get a cost estimate by calling `plamen.py`'s `estimate_cost()` function directly via Bash. Do NOT calculate costs manually " the Python function is the single source of truth.
 
 #### Step 0d.1: Get Estimate
 
@@ -277,7 +277,7 @@ Output as a formatted markdown block:
 | **Docs** | {docs status or "none"} |
 | **Scope** | {SCOPE_FILE basename or "full project"} |  â† only if set
 | **Notes** | {SCOPE_NOTES} |  â† only if set
-| **Proven-only** | ON â€” unproven findings capped at Low |  â† only if true
+| **Proven-only** | ON " unproven findings capped at Low |  â† only if true
 | **Codebase** | ~{lines} lines, {files} files{" (scoped)" if scoped} |
 | **Agents** | ~{agents} |
 | **Tokens** | ~{input_mtok}M in / ~{output_mtok}M out |
@@ -288,9 +288,9 @@ Output as a formatted markdown block:
 ```
 
 **Severity indicators for plan usage %:**
-- **<= 40%**: append `(ok)` â€” comfortable headroom
-- **41-80%**: append `(!)` â€” significant usage, warn the user
-- **> 80%**: append `(!!)` â€” may exceed weekly allowance, strongly warn
+- **<= 40%**: append `(ok)` " comfortable headroom
+- **41-80%**: append `(!)` " significant usage, warn the user
+- **> 80%**: append `(!!)` " may exceed weekly allowance, strongly warn
 
 **Warnings** (output after the table):
 - If `pct_pro > 80` AND MODE is not "light": `> **Warning**: This audit may exceed your Pro plan's weekly allowance. Consider using Light mode or upgrading to Max.`
@@ -332,7 +332,7 @@ AskUserQuestion(questions=[{
 
 If the user selected "Compare":
 1. If `REPORT_PATH` and `GROUND_TRUTH_PATH` are both set from `$ARGUMENTS`, skip to step 3.
-2. Otherwise, use `AskUserQuestion` to ask for both report paths (both must be `.md` files â€” PDFs cannot be diffed).
+2. Otherwise, use `AskUserQuestion` to ask for both report paths (both must be `.md` files " PDFs cannot be diffed).
 3. Read both files and follow the Post-Audit Improvement Protocol from `~/.claude/rules/post-audit-improvement-protocol.md`.
 
 Do NOT proceed to Step 1.
@@ -354,7 +354,7 @@ If `NETWORK` is set and `LANGUAGE` is `evm`, resolve to an RPC URL for productio
 | `avalanche` | `https://api.avax.network/ext/bc/C/rpc` or `$AVALANCHE_RPC_URL` env var |
 | Other (URL) | Use as-is |
 
-**Priority**: Environment variable > default public RPC. Store resolved URL as `RPC_URL` â€” used by Phase 1 TASK 11 (production verification) and Phase 5 (fork testing with `--fork-url`).
+**Priority**: Environment variable > default public RPC. Store resolved URL as `RPC_URL` " used by Phase 1 TASK 11 (production verification) and Phase 5 (fork testing with `--fork-url`).
 
 If `NETWORK` is not set: orchestrator infers from codebase (chainId constants, deployment configs, foundry.toml `[rpc_endpoints]`). If inference fails, production verification runs without fork testing.
 
@@ -398,7 +398,7 @@ Rule: generated auxiliary files belong under `{PROJECT_ROOT}/artifacts/`, never
 in the project root. For EVM call-graph DOT exports, always use
 `{PROJECT_ROOT}/artifacts/call-graphs/`.
 
-**Tree architecture â€” path resolution**:
+**Tree architecture " path resolution**:
 - **Language-specific prompts**: `~/.claude/prompts/{LANGUAGE}/`
 - **Shared rules**: `~/.claude/rules/`
 - **Skills**: `~/.claude/agents/skills/{LANGUAGE}/`
@@ -408,19 +408,19 @@ in the project root. For EVM call-graph DOT exports, always use
 
 ---
 
-## Â§WRITE-THEN-VERIFY: Subagent Output Protocol
+## §WRITE-THEN-VERIFY: Subagent Output Protocol
 
-> **Why**: The old pattern where agents return full output (~10-30 KB each) fills the orchestrator's context by Phase 4b, triggering context anxiety and self-imposed step skips. With 30+ agents at ~15 KB each, the orchestrator accumulates ~450 KB of agent output â€” leaving no room for depth iteration 2, niche agents, Skeptic-Judge, or later phases. The v1.1.5 dHEDGE audit proved this: the orchestrator skipped 20 agents and 0/19 manifest artifacts were produced.
+> **Why**: The old pattern where agents return full output (~10-30 KB each) fills the orchestrator's context by Phase 4b, triggering context anxiety and self-imposed step skips. With 30+ agents at ~15 KB each, the orchestrator accumulates ~450 KB of agent output " leaving no room for depth iteration 2, niche agents, Skeptic-Judge, or later phases. The v1.1.5 dHEDGE audit proved this: the orchestrator skipped 20 agents and 0/19 manifest artifacts were produced.
 
 **Protocol** (include in EVERY agent spawn prompt after the output file path):
 
 ```
 Write your output directly to {SCRATCHPAD}/{expected_filename} using the Write tool.
 Return ONLY a one-line summary: "DONE: {N} findings written to {filename}"
-Do NOT return your full output as text â€” the orchestrator's context budget is limited.
+Do NOT return your full output as text " the orchestrator's context budget is limited.
 ```
 
-**Orchestrator verification** (runs after EACH agent returns â€” mechanical, no reasoning):
+**Orchestrator verification** (runs after EACH agent returns " mechanical, no reasoning):
 
 ```bash
 FILE="{SCRATCHPAD}/{expected_filename}"
@@ -435,7 +435,7 @@ If VERIFY FAIL: re-prompt the agent with `"Your Write to {FILE} failed. Return y
 
 **Context savings**: ~50 bytes per agent return vs ~15 KB. With 40 agents: ~2 KB total vs ~600 KB.
 
-## Â§STEP-TRACE: Depth Agent Step Execution Trace Directive (advisory)
+## §STEP-TRACE: Depth Agent Step Execution Trace Directive (advisory)
 
 > **Mode gate**: Thorough mode only. Light/Core depth agents do NOT need to emit a step trace.
 > **Inject Into**: every Thorough-mode SC depth agent prompt (depth-token-flow, depth-state-trace, depth-edge-case, depth-external).
@@ -448,12 +448,12 @@ If VERIFY FAIL: re-prompt the agent with `"Your Write to {FILE} failed. Return y
 
 Include this block verbatim in every Thorough-mode SC depth agent prompt:
 
-> Before returning, you SHOULD write `{SCRATCHPAD}/step_execution_trace_{your_role}.md` (where `{your_role}` is the suffix of your output filename â€” e.g., `token_flow`, `state_trace`, `edge_case`, `external`). If you do not, the driver will synthesize this file from your findings' evidence-tag density.
+> Before returning, you SHOULD write `{SCRATCHPAD}/step_execution_trace_{your_role}.md` (where `{your_role}` is the suffix of your output filename " e.g., `token_flow`, `state_trace`, `edge_case`, `external`). If you do not, the driver will synthesize this file from your findings' evidence-tag density.
 >
 > This file accounts for whether each numbered section in your inherited skills was executed. Format:
 >
 > ```markdown
-> # Step Execution Trace â€” depth-{your_role}
+> # Step Execution Trace " depth-{your_role}
 >
 > | Skill | Step | Executed | Evidence | Result |
 > |-------|------|----------|----------|--------|
@@ -464,14 +464,14 @@ Include this block verbatim in every Thorough-mode SC depth agent prompt:
 > | {SKILL_NAME_B} | 1 | yes | {your-codebase}/{file}.{ext}:L{line} | {finding-id} |
 > ```
 >
-> The `{...}` tokens above are placeholders showing the schema â€” replace with REAL values from the codebase you are auditing. Do NOT copy the placeholder text verbatim. Cite real file paths from THIS audit's source tree, not from any example or prior audit. File extensions vary by language: `.sol` (Solidity), `.rs` (Soroban / Solana / Aptos / Sui), `.move` (Move). Use whatever extension matches your audit target.
+> The `{...}` tokens above are placeholders showing the schema " replace with REAL values from the codebase you are auditing. Do NOT copy the placeholder text verbatim. Cite real file paths from THIS audit's source tree, not from any example or prior audit. File extensions vary by language: `.sol` (Solidity), `.rs` (Soroban / Solana / Aptos / Sui), `.move` (Move). Use whatever extension matches your audit target.
 >
-> **One row per (skill, numbered-section) pair** for every skill listed in `template_recommendations.md` BINDING MANIFEST as `Required = YES` and routed to your role per `~/.claude/rules/skill-index.md` "Inject Into" column. Resolve the numbered sections by reading each skill's `SKILL.md` â€” sections start with `## N. Title`.
+> **One row per (skill, numbered-section) pair** for every skill listed in `template_recommendations.md` BINDING MANIFEST as `Required = YES` and routed to your role per `~/.claude/rules/skill-index.md` "Inject Into" column. Resolve the numbered sections by reading each skill's `SKILL.md` " sections start with `## N. Title`.
 >
 > **Allowed `Executed` values**:
-> - `yes` â€” section executed; Evidence MUST contain a `file:line` token (e.g. `Vault.sol:L45` or `Vault.sol:L45-67`). The driver hard-rejects ceremonial `yes` rows without `file:line` evidence.
-> - `partial` â€” partially executed; Evidence MUST cite what WAS analyzed and Result MUST state what's left.
-> - `no` â€” not executed; Evidence may be `-`. The driver aggregates these for the next phase.
+> - `yes` " section executed; Evidence MUST contain a `file:line` token (e.g. `Vault.sol:L45` or `Vault.sol:L45-67`). The driver hard-rejects ceremonial `yes` rows without `file:line` evidence.
+> - `partial` " partially executed; Evidence MUST cite what WAS analyzed and Result MUST state what's left.
+> - `no` " not executed; Evidence may be `-`. The driver aggregates these for the next phase.
 >
 > **Result column**:
 > - For `yes` rows: a finding ID (e.g. `DEPTH-TF-3`, `BLIND-1`) OR `safe (justification)` if the analysis confirmed no bug.
@@ -483,7 +483,7 @@ Include this block verbatim in every Thorough-mode SC depth agent prompt:
 
 ## Anti-Context-Anxiety Directive
 
-> **You have a 1M token context window. You are NOT running out of space.** Do NOT skip mandatory steps due to perceived context pressure. If you find yourself reasoning about "context budget", "practical constraints", or "efficiency" when deciding whether to execute a pipeline step â€” STOP. That reasoning is context anxiety, not a real constraint. Execute the step. If compaction occurs, read `{SCRATCHPAD}/pipeline_checkpoint.md` to recover state.
+> **You have a 1M token context window. You are NOT running out of space.** Do NOT skip mandatory steps due to perceived context pressure. If you find yourself reasoning about "context budget", "practical constraints", or "efficiency" when deciding whether to execute a pipeline step " STOP. That reasoning is context anxiety, not a real constraint. Execute the step. If compaction occurs, read `{SCRATCHPAD}/pipeline_checkpoint.md` to recover state.
 
 ## Checkpoint Manifest (written at every phase boundary)
 
@@ -529,14 +529,14 @@ This file survives compaction (read from disk). After any compaction event, the 
 
 When `MODE == light`, the orchestrator applies these overrides:
 
-1. **All agents use Sonnet or Haiku** â€” no Opus spawns. Use `model="sonnet"` for all analysis/verification agents, `model="haiku"` for assembler only.
+1. **All agents use Sonnet or Haiku** " no Opus spawns. Use `model="sonnet"` for all analysis/verification agents, `model="haiku"` for assembler only.
 2. **Recon**: Spawn 2 sonnet agents (not 4). Agent L1 = build + static analysis + tests (Tasks 1,2,8,9). Agent L2 = docs + patterns + surface + templates (Tasks 3,4,5,6,7,10). Skip RAG meta-buffer (Task 0) and fork ancestry entirely.
 3. **Breadth**: Cap at 3-4 sonnet agents (not 5-9 claude-opus-4-6). Use same merge hierarchy.
 4. **Semantic Invariants**: Skip entirely. Depth agents read `state_variables.md` directly.
-5. **Depth Loop**: Spawn 4 merged sonnet agents â€” (a) combined token-flow + state-trace, (b) combined edge-case + external, (c) combined scanner A+B+C, (d) validation sweep. No niche agents, no injectable investigation agents. Iteration 1 only, no confidence scoring. **Note**: Merges (a) and (c) are deliberate exceptions to the standard merge hierarchy â€” token-flow + state-trace and 3-scanner compression reduce agent count at the cost of per-domain attention depth. This is a known tradeoff accepted for Pro plan rate limit compliance.
+5. **Depth Loop**: Spawn 4 merged sonnet agents " (a) combined token-flow + state-trace, (b) combined edge-case + external, (c) combined scanner A+B+C, (d) validation sweep. No niche agents, no injectable investigation agents. Iteration 1 only, no confidence scoring. **Note**: Merges (a) and (c) are deliberate exceptions to the standard merge hierarchy " token-flow + state-trace and 3-scanner compression reduce agent count at the cost of per-domain attention depth. This is a known tradeoff accepted for Pro plan rate limit compliance.
 6. **Chain Analysis**: Single sonnet agent performs both enabler enumeration and chain matching in one pass.
 7. **Verification**: ALL Medium+ (same scope as Core), but all verifiers are sonnet.
-8. **Report**: 1 sonnet writer (all tiers) + 1 haiku assembler. No separate index agent â€” writer handles ID assignment inline.
+8. **Report**: 1 sonnet writer (all tiers) + 1 haiku assembler. No separate index agent " writer handles ID assignment inline.
 9. **Report disclaimer**: Include at the top of the report: *"This audit was performed in Light mode (all Sonnet agents). For maximum coverage, use Core or Thorough mode with a Max plan."*
 
 ---
@@ -560,11 +560,11 @@ Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`
 
 ### Step 1b: Spawn 4 Recon Agents (MANDATORY SPLIT)
 
-**Do NOT spawn a single monolithic recon agent.** Read the ORCHESTRATOR SPLIT DIRECTIVE in the prompt header and split into 4 agents. The prompt file may contain 4 separate `Task()` blocks (Solana/Aptos/Sui) or 1 monolithic block with a split directive (EVM) â€” in either case, split as follows:
+**Do NOT spawn a single monolithic recon agent.** Read the ORCHESTRATOR SPLIT DIRECTIVE in the prompt header and split into 4 agents. The prompt file may contain 4 separate `Task()` blocks (Solana/Aptos/Sui) or 1 monolithic block with a split directive (EVM) " in either case, split as follows:
 
 | Agent | Spawn | Model | Await? |
 |-------|-------|-------|--------|
-| **1A (RAG)** | `run_in_background: true` | sonnet | **NO** â€” fire-and-forget |
+| **1A (RAG)** | `run_in_background: true` | sonnet | **NO** " fire-and-forget |
 | **1B (Docs + External)** | foreground | claude-opus-4-6 (Core/Thorough) or sonnet (Light) | YES |
 | **2 (Build + Slither)** | foreground | sonnet | YES |
 | **3 (Patterns + Surface)** | foreground | claude-opus-4-6 (Core/Thorough) or sonnet (Light) | YES |
@@ -576,7 +576,7 @@ Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`
 ### After Agents 1B, 2, 3 Return
 1. Verify artifacts exist: `ls {scratchpad}/`
 2. Read: `recon_summary.md`, `template_recommendations.md`, `attack_surface.md`
-2b. **Operational Implications quality gate (Rule 14)**: Read `{scratchpad}/design_context.md`. Verify it contains an `## Operational Implications` section with at least one implication per documented Key Invariant. If the section is missing or contains fewer implications than invariants, re-prompt Agent 1B: `"The Operational Implications section in design_context.md is incomplete. For each Key Invariant, state what it means for how the system's accounting works â€” not what it checks, but what it tells you about the system's model. Derive from invariant formulas and data structure signatures."` This gate prevents downstream agents from analyzing a protocol they don't understand.
+2b. **Operational Implications quality gate (Rule 14)**: Read `{scratchpad}/design_context.md`. Verify it contains an `## Operational Implications` section with at least one implication per documented Key Invariant. If the section is missing or contains fewer implications than invariants, re-prompt Agent 1B: `"The Operational Implications section in design_context.md is incomplete. For each Key Invariant, state what it means for how the system's accounting works " not what it checks, but what it tells you about the system's model. Derive from invariant formulas and data structure signatures."` This gate prevents downstream agents from analyzing a protocol they don't understand.
 3. **RAG resilience check**: If `meta_buffer.md` does not exist or is empty (Agent 1A still running or failed):
    - Spawn lightweight RAG-retry agent (haiku, <2 min, 3 queries only):
      1. get_common_vulnerabilities(protocol_type)
@@ -616,11 +616,11 @@ Replace placeholders: `{path}`, `{scratchpad}`, `{docs_path_or_url_if_provided}`
 | M4 | ECONOMIC_DESIGN_AUDIT + core state agent | Monetary params are state correctness |
 | M5 | EXTERNAL_PRECONDITION_AUDIT + external dependency agent | External preconditions are external dep analysis |
 
-**Rules**: Never merge two skills both requiring >5 analysis steps. Never merge across incompatible domains. **Never merge FLASH_LOAN_INTERACTION or ORACLE_ANALYSIS with any other skill.** **Max 2 templates per agent (including injectables) AND max 300 combined SKILL.md lines.** If a 2-template merge would exceed 300 lines, split into an additional breadth agent instead. Narrower scope per agent improves depth â€” agents reliably execute ~300 lines of skill payload but degrade on larger prompts (validated by multi-agent audit research: LLMBugScanner, iAudit).
+**Rules**: Never merge two skills both requiring >5 analysis steps. Never merge across incompatible domains. **Never merge FLASH_LOAN_INTERACTION or ORACLE_ANALYSIS with any other skill.** **Max 2 templates per agent (including injectables) AND max 300 combined SKILL.md lines.** If a 2-template merge would exceed 300 lines, split into an additional breadth agent instead. Narrower scope per agent improves depth " agents reliably execute ~300 lines of skill payload but degrade on larger prompts (validated by multi-agent audit research: LLMBugScanner, iAudit).
 
 ### Step 2a.2: Move-Safety Agent (Aptos/Sui only)
 
-For Aptos and Sui audits, the 4 always-required skills (ABILITY_ANALYSIS, BIT_SHIFT_SAFETY, TYPE_SAFETY, REF_LIFECYCLE/OBJECT_OWNERSHIP) total ~900-950 lines â€” far exceeding the 300-line breadth agent cap. These are split into two delivery layers:
+For Aptos and Sui audits, the 4 always-required skills (ABILITY_ANALYSIS, BIT_SHIFT_SAFETY, TYPE_SAFETY, REF_LIFECYCLE/OBJECT_OWNERSHIP) total ~900-950 lines " far exceeding the 300-line breadth agent cap. These are split into two delivery layers:
 
 1. **Core directives** (~130 lines): Loaded into EVERY breadth agent via `~/.claude/agents/skills/{LANGUAGE}/move-safety-core-directives/SKILL.md`. Contains inventory greps + flag tables. Counts toward the 300-line cap but leaves ~170 lines for conditional skills.
 2. **Move-Safety Agent** (1 dedicated agent): Spawned in Phase 3 alongside breadth agents. Loads ALL 4 full skill files (~950 lines). Runs the complete trace methodology that breadth agents cannot fit. Costs 1 breadth agent slot.
@@ -661,9 +661,9 @@ For each planned breadth agent:
     Re-run this gate.
 ```
 
-**This is a mechanical check â€” run `wc -l` on actual files, do not estimate.** The 300-line cap was validated by multi-agent audit research (LLMBugScanner, iAudit): agents reliably execute ~300 lines of skill payload but degrade on larger prompts. Violations of this cap directly cause RC-AGENT misses where methodology exists but agents don't execute it.
+**This is a mechanical check " run `wc -l` on actual files, do not estimate.** The 300-line cap was validated by multi-agent audit research (LLMBugScanner, iAudit): agents reliably execute ~300 lines of skill payload but degrade on larger prompts. Violations of this cap directly cause RC-AGENT misses where methodology exists but agents don't execute it.
 
-**Soroban note**: Soroban skills average 30% larger than Solana equivalents. Merges that fit at Solana sizes often exceed 300 lines at Soroban sizes. Always check â€” never assume a merge that works for one language works for another.
+**Soroban note**: Soroban skills average 30% larger than Solana equivalents. Merges that fit at Solana sizes often exceed 300 lines at Soroban sizes. Always check " never assume a merge that works for one language works for another.
 
 ### Step 2c: Agent Prompt Structure
 ```
@@ -675,7 +675,7 @@ You are Analysis Agent #{N}: {FOCUS_AREA}
 ## Your Analysis Task
 {INSTANTIATED_TEMPLATE}
 
-## Analysis Strategy â€” Targeted Sweeps
+## Analysis Strategy " Targeted Sweeps
 Do NOT attempt to find all vulnerability types in a single pass.
 Instead, for each vulnerability class in your methodology:
 1. Sweep the ENTIRE scope for THIS class specifically
@@ -692,11 +692,11 @@ Use finding IDs: [{PREFIX}-1], [{PREFIX}-2]...
 SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agents' output files. Do NOT proceed to subsequent pipeline phases (re-scan, per-contract, inventory, semantic invariants, depth, RAG, chain analysis, verification, report). Return your findings and stop.
 ```
 
-### Step 2c.1: MCP Timeout Directive (MANDATORY â€” Rule 11)
+### Step 2c.1: MCP Timeout Directive (MANDATORY " Rule 11)
 
 Every agent prompt that makes MCP tool calls (recon agents, depth agents, chain agents, verifiers, RAG sweep) MUST include this directive at the end of its prompt:
 
-*"When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record [MCP: TIMEOUT] and skip ALL remaining calls to that provider â€” switch immediately to fallback (code analysis, grep, WebSearch). Claude Code's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start. You cannot cancel a pending call â€” but you control what happens after the error returns."*
+*"When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record [MCP: TIMEOUT] and skip ALL remaining calls to that provider " switch immediately to fallback (code analysis, grep, WebSearch). Claude Code's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start. You cannot cancel a pending call " but you control what happens after the error returns."*
 
 The orchestrator MUST append this text when composing prompts for MCP-calling agents. Agents that do not make MCP calls (pure code analysis breadth agents, report writers) do not need it.
 
@@ -742,7 +742,7 @@ After all return:
    - Template methodology was applied
 3. If ANY required file missing â†’ **Re-spawn that agent before Phase 4a**
 4. Update spawn_manifest.md with completion status
-5. Do NOT read analysis files â€” inventory agent reads them
+5. Do NOT read analysis files " inventory agent reads them
 6. Close completed breadth agents before inventory begins.
 7. If any breadth agent wrote later-phase files (inventory/depth/chain/verify/report),
    treat those files as invalid overreach for sequencing purposes. Record the
@@ -786,7 +786,7 @@ After all return:
 ### Phase 4a.5: Semantic Invariant Pre-Computation
 
 > **Skip in Light mode.** Depth agents read `state_variables.md` directly.
-> **Timeout fallback**: If the semantic invariant agent times out or fails, proceed to Phase 4b without `semantic_invariants.md`. Depth agents fall back to reading `state_variables.md` directly (same as Light mode). Log: "Phase 4a.5 TIMEOUT â€” depth agents using state_variables.md fallback."
+> **Timeout fallback**: If the semantic invariant agent times out or fails, proceed to Phase 4b without `semantic_invariants.md`. Depth agents fall back to reading `state_variables.md` directly (same as Light mode). Log: "Phase 4a.5 TIMEOUT " depth agents using state_variables.md fallback."
 
 > **Purpose**: Enumerate write sites, define semantic invariants, group variables into semantic clusters. Pass 2 (Thorough only) reverses direction for functionâ†’cluster coverage and recursive stale-read traces.
 > **Models**: Pass 1 sonnet, Pass 2 sonnet (sequential)
@@ -797,7 +797,7 @@ Spawn between Phase 4a (inventory) and Phase 4b (depth loop).
 
 ```
 Task(subagent_type="general-purpose", model="sonnet", prompt="
-You are Semantic Invariant Agent â€” Pass 1. You enumerate write sites, define semantic invariants, and group variables into semantic clusters.
+You are Semantic Invariant Agent " Pass 1. You enumerate write sites, define semantic invariants, and group variables into semantic clusters.
 
 ## Your Inputs
 Read:
@@ -811,7 +811,7 @@ For EACH accumulator, snapshot, or total-tracking variable in state_variables.md
 
 1. **Enumerate write sites**: Use grep to find ALL locations that write to this variable.
 2. **State the semantic invariant**: In ONE sentence, what SHOULD this variable represent?
-3. **Enumerate value-changing functions**: Find ALL functions that change the UNDERLYING VALUE the variable tracks â€” whether or not they update the variable.
+3. **Enumerate value-changing functions**: Find ALL functions that change the UNDERLYING VALUE the variable tracks " whether or not they update the variable.
 4. **Annotate conditional writes**: For each write site, check if the write is inside a conditional block. If YES, annotate as CONDITIONAL(condition_expression).
 4a. **Detect asymmetric branches**: For each CONDITIONAL write, check if the SAME function also writes UNCONDITIONALLY to a different tracking variable. If YES, flag as ASYMMETRIC_BRANCH.
 5. **Detect mirror variables**: Identify variable PAIRS tracking the same concept in different storage. For each pair, list ALL functions that write to EITHER. If any function writes to one but not the other â†’ flag as SYNC_GAP.
@@ -819,7 +819,7 @@ For EACH accumulator, snapshot, or total-tracking variable in state_variables.md
 
 ## Semantic Clustering
 
-Group ALL enumerated variables into semantic clusters â€” groups of variables collectively representing a single domain or lifecycle. For each cluster, identify which functions write ALL members (full-write) vs only SOME members (partial-write).
+Group ALL enumerated variables into semantic clusters " groups of variables collectively representing a single domain or lifecycle. For each cluster, identify which functions write ALL members (full-write) vs only SOME members (partial-write).
 
 ## Output
 
@@ -841,11 +841,11 @@ Return: 'DONE: {N} variables, {M} gaps, {C} conditional, {S} sync_gaps, {A} accu
 ")
 ```
 
-**Pass 2 Agent** (THOROUGH mode only â€” Function â†’ Cluster Coverage + Recursive Gap Trace):
+**Pass 2 Agent** (THOROUGH mode only " Function â†’ Cluster Coverage + Recursive Gap Trace):
 
 ```
 Task(subagent_type="general-purpose", model="sonnet", prompt="
-You are Semantic Invariant Agent â€” Pass 2. You reverse the analysis direction: for each function, check which clusters it touches incompletely, then recursively trace consequences of stale reads.
+You are Semantic Invariant Agent " Pass 2. You reverse the analysis direction: for each function, check which clusters it touches incompletely, then recursively trace consequences of stale reads.
 
 ## Your Inputs
 Read:
@@ -857,8 +857,8 @@ Read:
 
 For each Partial-Write Function in the Semantic Clusters table:
 1. Which cluster members does it write? Which does it SKIP?
-2. For each skipped member: describe in ONE factual sentence WHY it is skipped. This is a FACTUAL ANNOTATION â€” do NOT judge whether the skip is safe.
-3. Flag ALL skips as CLUSTER_GAP â€” no exceptions.
+2. For each skipped member: describe in ONE factual sentence WHY it is skipped. This is a FACTUAL ANNOTATION " do NOT judge whether the skip is safe.
+3. Flag ALL skips as CLUSTER_GAP " no exceptions.
 
 ## STEP 2: Recursive Consequence Trace
 
@@ -906,12 +906,12 @@ Return: 'DONE: {G} cluster_gaps, {T} consequence traces ({D} deep_propagation), 
 
 When `MODE == thorough` AND `LANGUAGE == evm`:
 
-**Step A: Invariant Fuzz Campaign** (MANDATORY â€” zero budget cost)
+**Step A: Invariant Fuzz Campaign** (MANDATORY " zero budget cost)
 Read template: `~/.claude/prompts/{LANGUAGE}/phase4b-invariant-fuzz.md`
 Spawn agent. Await completion. Write results to `invariant_fuzz_results.md`.
 The template has a 5-minute timeout built in. Do NOT skip this to save time.
 
-**Step B: Medusa Campaign** (MANDATORY if MEDUSA_AVAILABLE â€” zero budget cost)
+**Step B: Medusa Campaign** (MANDATORY if MEDUSA_AVAILABLE " zero budget cost)
 Read from `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` Medusa section.
 Spawn agent IN PARALLEL with Step A. Await completion.
 Write results to `medusa_fuzz_findings.md`.
@@ -923,7 +923,7 @@ ASSERT: medusa_fuzz_findings.md exists (or MEDUSA_UNAVAILABLE logged)
 IF either missing AND no failure logged â†’ VIOLATION: "Fuzz campaign skipped without failure reason"
 ```
 
-If violations are detected, log them to `{SCRATCHPAD}/violations.md` but continue â€” the violation log is the enforcement mechanism.
+If violations are detected, log them to `{SCRATCHPAD}/violations.md` but continue " the violation log is the enforcement mechanism.
 
 ### Phase 4b: Adaptive Depth Loop
 
@@ -941,9 +941,9 @@ The orchestrator runs the full loop autonomously:
    - Validation Sweep Agent
    - **Niche agents**: For each REQUIRED niche agent in `template_recommendations.md` â†’ `Niche Agents` section, read its definition from `~/.claude/agents/skills/niche/{name}/SKILL.md` and spawn alongside depth agents. Each niche agent = 1 budget slot.
    - **Timeout split-and-retry**: If any agent times out, split its findings into 2 "lite" agents (max 3 findings each, no static analyzer, max 5 files). 2 lite agents = 1 budget unit.
-   - **Â§STEP-TRACE injection (Thorough only â€” MANDATORY)**: Each of the 4 depth-agent prompts (token-flow, state-trace, edge-case, external) MUST include the Â§STEP-TRACE directive verbatim (see top of this file). Without it, the agent will not emit `step_execution_trace_{role}.md` and the driver's `_check_step_execution_traces` gate will hard-fail the depth phase. Light/Core mode depth spawns SKIP Â§STEP-TRACE â€” the gate is mode-gated to Thorough only. Scanners and niche agents do NOT need Â§STEP-TRACE (different agent class; gate operates on `depth_*_findings.md` only).
+   - **§STEP-TRACE injection (Thorough only " MANDATORY)**: Each of the 4 depth-agent prompts (token-flow, state-trace, edge-case, external) MUST include the §STEP-TRACE directive verbatim (see top of this file). Without it, the agent will not emit `step_execution_trace_{role}.md` and the driver's `_check_step_execution_traces` gate will hard-fail the depth phase. Light/Core mode depth spawns SKIP §STEP-TRACE " the gate is mode-gated to Thorough only. Scanners and niche agents do NOT need §STEP-TRACE (different agent class; gate operates on `depth_*_findings.md` only).
 
-2. **Score all findings** (MANDATORY for Core/Thorough â€” Light mode skips scoring). Orchestrator MUST spawn the scoring agent and await `confidence_scores.md` before deciding whether to proceed to iteration 2. Skipping scoring to "go straight to chain analysis" is a VIOLATION. Spawn sonnet scoring agent â†’ `confidence_scores.md`
+2. **Score all findings** (MANDATORY for Core/Thorough " Light mode skips scoring). Orchestrator MUST spawn the scoring agent and await `confidence_scores.md` before deciding whether to proceed to iteration 2. Skipping scoring to "go straight to chain analysis" is a VIOLATION. Spawn sonnet scoring agent â†’ `confidence_scores.md`
    - **Core mode**: 2-axis scoring (Evidence x 0.5 + Analysis Quality x 0.5)
    - **Thorough mode**: 4-axis scoring (Evidence x 0.25 + Consensus x 0.25 + Analysis Quality x 0.3 + RAG Match x 0.2)
    - CONFIDENT (>= 0.7): no more depth needed
@@ -965,22 +965,22 @@ The orchestrator runs the full loop autonomously:
 
 **Convergence**: Hard cap 3 iterations (Core: 1, Light: 1 with no scoring), dynamic budget cap `min(max(12, ceil(findings/5)+7), 20)`, progress check after each iteration.
 
-> **Light mode: Phase 4b.5 RAG Sweep** â€” Skip entirely. RAG validation is not performed in Light mode (no confidence scoring axis requires it).
+> **Light mode: Phase 4b.5 RAG Sweep** " Skip entirely. RAG validation is not performed in Light mode (no confidence scoring axis requires it).
 
-6. **Design Stress Testing (Thorough mode only)**: ALWAYS spawn Design Stress Testing Agent. 1 slot is pre-reserved and UNCONDITIONAL â€” not a "budget redirect." This agent runs regardless of remaining budget.
+6. **Design Stress Testing (Thorough mode only)**: ALWAYS spawn Design Stress Testing Agent. 1 slot is pre-reserved and UNCONDITIONAL " not a "budget redirect." This agent runs regardless of remaining budget.
 
-7. **Finding Perturbation Agent (Thorough mode only â€” MANDATORY)**: After depth iteration completes, spawn the Finding Perturbation Agent (sonnet, 1 pre-reserved budget slot). Full spawn template + mutation operators in `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` Â§FINDING PERTURBATION AGENT. Expected output: `{SCRATCHPAD}/perturbation_findings.md` with `[PERT-N]` IDs. This agent applies 5 structured mutation operators (DIRECTION_FLIP, BOUNDARY_SHIFT, CONDITION_NEGATE, OPERAND_SWAP, TEMPORAL_INVERT) to each CONFIRMED depth finding and tests for adjacent vulnerabilities. Catches the "single-hit satisfaction" class where agents find one variant of a bug and stop. Research: AdverTest Feb 2026 +8.56% FDR, Meta mutation-guided test gen FSE 2025. Runs in parallel with step 8. **This is a MANDATORY THOROUGH STEP per CLAUDE.md Rule 12** â€” the never-cut gate enforces the output file; omission is a workflow violation.
+7. **Finding Perturbation Agent (Thorough mode only " MANDATORY)**: After depth iteration completes, spawn the Finding Perturbation Agent (sonnet, 1 pre-reserved budget slot). Full spawn template + mutation operators in `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` §FINDING PERTURBATION AGENT. Expected output: `{SCRATCHPAD}/perturbation_findings.md` with `[PERT-N]` IDs. This agent applies 5 structured mutation operators (DIRECTION_FLIP, BOUNDARY_SHIFT, CONDITION_NEGATE, OPERAND_SWAP, TEMPORAL_INVERT) to each CONFIRMED depth finding and tests for adjacent vulnerabilities. Catches the "single-hit satisfaction" class where agents find one variant of a bug and stop. Research: AdverTest Feb 2026 +8.56% FDR, Meta mutation-guided test gen FSE 2025. Runs in parallel with step 8. **This is a MANDATORY THOROUGH STEP per CLAUDE.md Rule 12** " the never-cut gate enforces the output file; omission is a workflow violation.
 
-8. **Skill Execution Checklist (Thorough mode only â€” MANDATORY)**: After depth iteration completes, spawn the Depth Skill Execution Checklist Agent (haiku, negligible cost, runs in parallel with step 7). Full spawn template in `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` Â§DEPTH SKILL EXECUTION CHECKLIST. Expected output: `{SCRATCHPAD}/skill_execution_gaps.md` (also satisfies `skill_execution_checklist.md` via any_of group). Verifies each depth agent executed each step of its assigned skill and produces a coverage table `| Agent | Skill Step | Evidence in Output? | Gap? |`. Gaps become investigation questions for DA iteration 2 per AD-6. **This is a MANDATORY THOROUGH STEP per CLAUDE.md Rule 12** â€” the never-cut gate enforces the output file; omission is a workflow violation.
+8. **Skill Execution Checklist (Thorough mode only " MANDATORY)**: After depth iteration completes, spawn the Depth Skill Execution Checklist Agent (haiku, negligible cost, runs in parallel with step 7). Full spawn template in `~/.claude/prompts/{LANGUAGE}/phase4b-loop.md` §DEPTH SKILL EXECUTION CHECKLIST. Expected output: `{SCRATCHPAD}/skill_execution_gaps.md` (also satisfies `skill_execution_checklist.md` via any_of group). Verifies each depth agent executed each step of its assigned skill and produces a coverage table `| Agent | Skill Step | Evidence in Output? | Gap? |`. Gaps become investigation questions for DA iteration 2 per AD-6. **This is a MANDATORY THOROUGH STEP per CLAUDE.md Rule 12** " the never-cut gate enforces the output file; omission is a workflow violation.
 
-> **Steps 6-8 run in parallel.** Spawn the 3 agents (DST + perturbation + checklist) in a single message with 3 Task calls, then `await` all three. Do NOT serialize â€” they operate on depth outputs independently and have no dependencies on each other.
+> **Steps 6-8 run in parallel.** Spawn the 3 agents (DST + perturbation + checklist) in a single message with 3 Task calls, then `await` all three. Do NOT serialize " they operate on depth outputs independently and have no dependencies on each other.
 
-### THOROUGH CHECKPOINT: Post-Depth (orchestrator inline â€” STATIC MANIFEST CHECK)
+### THOROUGH CHECKPOINT: Post-Depth (orchestrator inline " STATIC MANIFEST CHECK)
 
 **Do NOT write checkpoint assertions from memory.** Read the static manifest and verify against it:
 
 ```
-// STEP 0: Mode gate â€” this check is Thorough-only
+// STEP 0: Mode gate " this check is Thorough-only
 if MODE != THOROUGH:
     // Core/Light: only assert confidence_scores.md + adaptive_loop_log.md exist, then proceed
     ASSERT: confidence_scores.md exists (Core) OR skip scoring (Light)
@@ -1008,7 +1008,7 @@ if len(missing) > 0:
     for each missing file:
         spawn the responsible agent (see Producer column in manifest)
     re-run STEP 2 after agents complete
-    ASSERT len(missing) == 0 â€” HARD GATE, cannot proceed to Phase 4c
+    ASSERT len(missing) == 0 " HARD GATE, cannot proceed to Phase 4c
 
 // STEP 5: Standard assertions
 ASSERT: confidence_scores.md is non-empty
@@ -1017,7 +1017,7 @@ ASSERT: IF uncertain Medium+ findings exist after iter 1 â†’ adaptive_loop_
 LOG checkpoint result to {SCRATCHPAD}/checkpoint_postdepth.md
 ```
 
-**WHY STATIC MANIFEST**: The orchestrator previously wrote its own checkpoint â€” verifying only what it remembered to do, silently skipping what it forgot. The static manifest file is defined outside the orchestrator's generation context. Missing artifacts trigger agent spawns, not silent passes.
+**WHY STATIC MANIFEST**: The orchestrator previously wrote its own checkpoint " verifying only what it remembered to do, silently skipping what it forgot. The static manifest file is defined outside the orchestrator's generation context. Missing artifacts trigger agent spawns, not silent passes.
 
 ### Phase 4b.4: Attention Repair (Thorough only)
 
@@ -1098,7 +1098,7 @@ The sweep MUST be attempted. Writing floor scores without attempting is a VIOLAT
 
 **Step 5.0: Compute verification scope**
 
-Read `{SCRATCHPAD}/hypotheses.md` (first 100 lines ONLY â€” hypothesis table). Count hypotheses per severity tier.
+Read `{SCRATCHPAD}/hypotheses.md` (first 100 lines ONLY " hypothesis table). Count hypotheses per severity tier.
 
 | Mode | Scope |
 |------|-------|
@@ -1106,13 +1106,13 @@ Read `{SCRATCHPAD}/hypotheses.md` (first 100 lines ONLY â€” hypothesis tabl
 | Core | ALL Medium+ (claude-opus-4-6 for High/Chain, sonnet for Medium) |
 | Thorough | ALL severities (claude-opus-4-6 for High/Chain, sonnet for Medium, sonnet for Low/Info) + fuzz variants |
 
-**Step 5.0.1: Crash resume â€” skip already-verified hypotheses**
+**Step 5.0.1: Crash resume " skip already-verified hypotheses**
 
 Before spawning, scan `{SCRATCHPAD}/` for existing `verify_*.md` files. For each file, extract the hypothesis IDs it covers (from the `## Scope:` header or `### H-XX` sections). Remove those IDs from the verification queue. Only spawn verifiers for MISSING hypotheses.
 
 **Step 5.0.2: Batched spawning (when total verifiers > 8)**
 
-If total verifiers to spawn **â‰¤ 8**: spawn ALL in a single parallel message (standard behavior â€” no batching needed).
+If total verifiers to spawn **â‰¤ 8**: spawn ALL in a single parallel message (standard behavior " no batching needed).
 
 If total verifiers to spawn **> 8**: split into severity-tier batches. Spawn each batch, await ALL agents in that batch, then spawn the next batch.
 
@@ -1125,9 +1125,9 @@ If total verifiers to spawn **> 8**: split into severity-tier batches. Spawn eac
 
 > **Batch sizing**: If a tier has â‰¤ 6 hypotheses, it fits in one batch. If > 6, split into sub-batches of â‰¤ 6. Chains + High are always in the same batch (both claude-opus-4-6, rarely > 10 combined).
 
-> **Between batches**: Do NOT read the `verify_*.md` files written by the completed batch. Only note the short return message from each agent. Detailed output lives on disk â€” the orchestrator does not need it until Phase 5.5/6.
+> **Between batches**: Do NOT read the `verify_*.md` files written by the completed batch. Only note the short return message from each agent. Detailed output lives on disk " the orchestrator does not need it until Phase 5.5/6.
 
-> **Batch D (Low/Info)**: Always a SINGLE agent that handles all Low + Info hypotheses via code trace. This is already the standard approach â€” no change here.
+> **Batch D (Low/Info)**: Always a SINGLE agent that handles all Low + Info hypotheses via code trace. This is already the standard approach " no change here.
 
 **Step 5.0.3: Verifier output convention**
 
@@ -1147,7 +1147,7 @@ After ALL standard Phase 5 verifiers complete:
 1. Identify all HIGH/CRIT findings with standard verdicts
 2. For EACH, spawn a skeptic agent (sonnet) with INVERSION MANDATE
 3. If skeptic AGREES â†’ final verdict = standard verdict (high confidence)
-4. If skeptic DISAGREES â†’ spawn haiku judge ("prove it or lose it" â€” stronger mechanical evidence wins)
+4. If skeptic DISAGREES â†’ spawn haiku judge ("prove it or lose it" " stronger mechanical evidence wins)
 5. Apply final verdict per the ruling table in the verification prompt
 
 **Skip in Light and Core mode.**
@@ -1196,21 +1196,21 @@ After ALL verifiers complete:
 
 > **Core/Thorough**: Read `~/.claude/rules/phase6-report-prompts.md` and follow the full 5-agent pipeline (Index â†’ 3 Tier Writers â†’ Assembler).
 
-> **V2 driver sharded execution (v2.1.2)**: When this prompt is invoked by the V2 driver (`plamen_driver.py`) in Core/Thorough mode, each sub-step below is a SEPARATE `claude -p` subprocess with its own timeout. The driver extracts ONLY the relevant sub-step section for each subprocess (via `extract_phase_sections`). Do NOT attempt to run multiple sub-steps in one conversation when the incoming prompt contains only ONE of the sub-sections below â€” that signals a sharded execution and you must execute only the one section you received and then stop. V1 (LLM-orchestrator) runs all sub-steps in one conversation as before.
+> **V2 driver sharded execution (v2.1.2)**: When this prompt is invoked by the V2 driver (`plamen_driver.py`) in Core/Thorough mode, each sub-step below is a SEPARATE `claude -p` subprocess with its own timeout. The driver extracts ONLY the relevant sub-step section for each subprocess (via `extract_phase_sections`). Do NOT attempt to run multiple sub-steps in one conversation when the incoming prompt contains only ONE of the sub-sections below " that signals a sharded execution and you must execute only the one section you received and then stop. V1 (LLM-orchestrator) runs all sub-steps in one conversation as before.
 
 #### Step 6a: Index Agent
 
 **Scope**: Produce the Master Finding Index (`report_index.md`) and `report_coverage.md` from `findings_inventory.md`, `verify_*.md` files, `rag_validation.md`, `finding_mapping.md`, and chain outputs. Apply STEP 1.5 Root-Cause Consolidation and STEP 5.5 Promotion Coverage Audit.
 
-**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` Â§Step 6a and follow it verbatim. The Index Agent is ONE `general-purpose` subagent with `model="haiku"`. Verify completeness inline per Â§Step 6a.1.
+**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` §Step 6a and follow it verbatim. The Index Agent is ONE `general-purpose` subagent with `model="haiku"`. Verify completeness inline per §Step 6a.1.
 
 **Output contract**: `{SCRATCHPAD}/report_index.md` (Master Finding Index, summary counts, tier assignments, consolidation map, cross-reference map, excluded findings) AND `{SCRATCHPAD}/report_coverage.md` (raw candidate ledger, uncovered mode-limited recommendations, promotion failures repaired).
 
 #### Step 6b: Tier Writers
 
-**Scope**: Produce `report_critical_high.md`, `report_medium.md`, and `report_low_info.md` by spawning THREE tier-writer agents in parallel (one message, three `Task()` calls). Each tier writer follows the Tier Writer Common Rules from `~/.claude/rules/phase6-report-prompts.md` Â§Step 6b.
+**Scope**: Produce `report_critical_high.md`, `report_medium.md`, and `report_low_info.md` by spawning THREE tier-writer agents in parallel (one message, three `Task()` calls). Each tier writer follows the Tier Writer Common Rules from `~/.claude/rules/phase6-report-prompts.md` §Step 6b.
 
-**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` Â§Step 6b and spawn the three tier writers per that spec. The V2 driver overrides Critical+High to `model="sonnet"` for cost discipline; Medium and Low+Info also use `model="sonnet"`.
+**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` §Step 6b and spawn the three tier writers per that spec. The V2 driver overrides Critical+High to `model="sonnet"` for cost discipline; Medium and Low+Info also use `model="sonnet"`.
 
 **Output contract**: Three tier files, each with one `###` section per finding assigned by the Index Agent. Every section â‰¥ 400 chars. NO internal pipeline IDs in the body. Cross-references use only report IDs.
 
@@ -1218,27 +1218,27 @@ After ALL verifiers complete:
 
 **Scope**: Merge the three tier files + `report_index.md` header + Executive Summary + Priority Remediation + Appendix A into `{PROJECT_ROOT}/AUDIT_REPORT.md`.
 
-**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` Â§Step 6c and follow its STEP 1 (assemble), STEP 1.5 (runtime metadata hygiene), STEP 2 (quality checks), STEP 3 (write) verbatim.
+**Execution**: Read `~/.claude/rules/phase6-report-prompts.md` §Step 6c and follow its STEP 1 (assemble), STEP 1.5 (runtime metadata hygiene), STEP 2 (quality checks), STEP 3 (write) verbatim.
 
-**Output contract**: `{PROJECT_ROOT}/AUDIT_REPORT.md` exists with header + summary table + every finding from the three tier files + remediation order + Appendix A. The V2 driver runs a mechanical `report_quality.md` gate after this phase exits (v2.1.2): section count per tier matches the summary table, no internal-ID leakage outside Appendix A, no Claude-era runtime metadata, non-stub. Assembler does NOT need to produce `report_quality.md` itself â€” the driver generates it mechanically. A timestamped snapshot `AUDIT_REPORT-YYYYMMDD-HHMM.md` is written by the driver on successful pipeline exit.
+**Output contract**: `{PROJECT_ROOT}/AUDIT_REPORT.md` exists with header + summary table + every finding from the three tier files + remediation order + Appendix A. The V2 driver runs a mechanical `report_quality.md` gate after this phase exits (v2.1.2): section count per tier matches the summary table, no internal-ID leakage outside Appendix A, no Claude-era runtime metadata, non-stub. Assembler does NOT need to produce `report_quality.md` itself " the driver generates it mechanically. A timestamped snapshot `AUDIT_REPORT-YYYYMMDD-HHMM.md` is written by the driver on successful pipeline exit.
 
 ---
 
 ## FINDING OUTPUT FORMAT
 
-**Full format in**: `~/.claude/rules/finding-output-format.md` â€” ALL agents MUST read this file and use its format for findings. Includes finding template, Rules Applied table (R4-R16), enforcement rules, and Depth Evidence Tags.
+**Full format in**: `~/.claude/rules/finding-output-format.md` " ALL agents MUST read this file and use its format for findings. Includes finding template, Rules Applied table (R4-R16), enforcement rules, and Depth Evidence Tags.
 
 ---
 
 ## GENERIC SECURITY RULES
 
-**Full rules (R1-R16) in**: `~/.claude/prompts/{LANGUAGE}/generic-security-rules.md` â€” agents MUST read this file. Key enforcement: CONTESTED â†’ adversarial assumption (R4), REFUTED â†’ requires chain analysis for enablers first (R12).
+**Full rules (R1-R16) in**: `~/.claude/prompts/{LANGUAGE}/generic-security-rules.md` " agents MUST read this file. Key enforcement: CONTESTED â†’ adversarial assumption (R4), REFUTED â†’ requires chain analysis for enablers first (R12).
 
 ---
 
 ## SELF-CHECK
 
-**Full checklists in**: `~/.claude/prompts/{LANGUAGE}/self-check-checklists.md` â€” orchestrator MUST read and verify before Phase 5.
+**Full checklists in**: `~/.claude/prompts/{LANGUAGE}/self-check-checklists.md` " orchestrator MUST read and verify before Phase 5.
 
 Quick checks before verification:
 - [ ] All external deps identified?

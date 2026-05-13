@@ -107,7 +107,7 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
 
   // â•â•â• SYMMETRIC OPERATION PAIRING (Thorough only) â•â•â•
   // Pre-compute symmetric operation pairs from function_list.md and inject into
-  // depth agent prompts. Removes discovery burden â€” agents verify both sides of
+  // depth agent prompts. Removes discovery burden " agents verify both sides of
   // each pair mechanically instead of reasoning about which pairs exist.
   // Evidence: AdverTest (2026), Meta mutation-guided test gen (FSE 2025).
   if MODE == THOROUGH:
@@ -537,7 +537,7 @@ Read:
 
 For EACH finding in your batch, compute 4 axis scores:
 
-### Axis 1: Evidence (0.0â€“1.0)
+### Axis 1: Evidence (0.0—1.0)
 Use the BEST evidence tag found for this finding:
 - [PROD-ONCHAIN] = 1.0
 - [PROD-SOURCE] = 0.9
@@ -549,11 +549,11 @@ Use the BEST evidence tag found for this finding:
 - No tag / unclear = 0.3
 If finding has no explicit evidence tags, infer: code snippets from source = [CODE] = 0.8.
 
-### Axis 2: Consensus (0.0â€“1.0)
+### Axis 2: Consensus (0.0—1.0)
 Read from `{SCRATCHPAD}/consensus_map.md` - use the pre-computed score for each finding ID.
 (Pre-computed by orchestrator: domain-aware agreement with specialized agent bonus.)
 
-### Axis 3: Analysis Quality (0.0â€“1.0) - DUAL MODE
+### Axis 3: Analysis Quality (0.0—1.0) - DUAL MODE
 
 **Mode A - Depth agent findings** (finding ID starts with [DEPTH-*], [BLIND-*], or [VS-*]):
 Count Depth Evidence tags ([BOUNDARY:*], [VARIATION:*], [TRACE:*]):
@@ -569,7 +569,7 @@ From Step Execution field:
 - Score = COMPLETE / (COMPLETE + INCOMPLETE)
 If no Step Execution field: score = 0.3
 
-### Axis 4: RAG Match (0.0â€“1.0)
+### Axis 4: RAG Match (0.0—1.0)
 If finding has RAG validation result: use RAG confidence / 10
 If no RAG validation: score = 0.3 (floor - missing RAG is a coverage gap, not negative evidence)
 
@@ -672,10 +672,10 @@ For EVERY finding you re-analyze, apply at least 2 of these 3 techniques:
    Soroban examples: `[BOUNDARY:i128::MAX â†’ overflow if overflow-checks=false]`, `[BOUNDARY:ttl=0 â†’ entry archived before next read]`, `[BOUNDARY:allowance=0 â†’ transfer_from reverts or no-op]`
 2. **Parameter Variation**: Vary inputs across valid range. Tag: `[VARIATION:param Aâ†’B â†’ outcome]`
    Soroban examples: `[VARIATION:storage Instanceâ†’Persistent â†’ eviction window differs]`, `[VARIATION:token SACâ†’custom â†’ transfer_from hook fired]`, `[VARIATION:invoke_contractâ†’try_invoke_contract â†’ panic vs Result]`
-3. **Trace to Termination**: Follow execution to terminal state. When a boundary value produces weight=0, contribution=0, or amount=0, trace whether the zero-value entry still increments a counter or passes a gate that downstream code relies on for correctness. **Nested call resolution**: When tracing through a cross-contract call, also trace what happens when control returns to the caller â€” does it reload storage and verify post-call state? Tag: `[TRACE:pathâ†’outcome at L{N}]`
+3. **Trace to Termination**: Follow execution to terminal state. When a boundary value produces weight=0, contribution=0, or amount=0, trace whether the zero-value entry still increments a counter or passes a gate that downstream code relies on for correctness. **Nested call resolution**: When tracing through a cross-contract call, also trace what happens when control returns to the caller " does it reload storage and verify post-call state? Tag: `[TRACE:pathâ†’outcome at L{N}]`
 
 ## INVARIANT CONSISTENCY CHECK (HARD GATE)
-For each finding you CONFIRM at Medium+ severity, you MUST check: does this finding's claimed impact contradict any Operational Implication in design_context.md? If the finding claims tokens are locked, lost, or desynchronized â€” trace the ACTUAL token/ledger entry flow and verify against the documented accounting model. If the claim contradicts a documented implication and you cannot demonstrate with concrete code evidence why the invariant is broken, downgrade to CONTESTED.
+For each finding you CONFIRM at Medium+ severity, you MUST check: does this finding's claimed impact contradict any Operational Implication in design_context.md? If the finding claims tokens are locked, lost, or desynchronized " trace the ACTUAL token/ledger entry flow and verify against the documented accounting model. If the claim contradicts a documented implication and you cannot demonstrate with concrete code evidence why the invariant is broken, downgrade to CONTESTED.
 
 ## Your Task
 

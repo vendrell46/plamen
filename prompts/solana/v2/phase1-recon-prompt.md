@@ -15,7 +15,7 @@ fails or times out, record the failure in the relevant output file and
 continue to the next task. Never retry more than once. Partial recon is
 better than no recon.
 
-**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts â€” they're authoritative for the mechanical data they cover.
+**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts " they're authoritative for the mechanical data they cover.
 
 ## Inputs (pre-resolved by the driver)
 
@@ -46,14 +46,14 @@ consume 50+ turns on exploration alone. If you hit the cap or timeout
 without writing the required artifacts, the driver's gate fails and the
 whole pipeline aborts.
 
-**Rule**: In the FIRST 5â€“10 turns, write SUBSTANTIVE DRAFTS of ALL 11
+**Rule**: In the FIRST 5—10 turns, write SUBSTANTIVE DRAFTS of ALL 11
 required artifacts. A mechanical pre-pass (`recon_prepass.py`) may have
-already written some of them â€” check with `ls {SCRATCHPAD}/` FIRST and
+already written some of them " check with `ls {SCRATCHPAD}/` FIRST and
 only draft the missing ones. After drafts exist, spend remaining turns
 enriching them.
 
 The 11 required artifacts (gate will reject if any is missing). Note:
-the SC gate is uniform across all languages â€” Solana uses the same
+the SC gate is uniform across all languages " Solana uses the same
 `contract_inventory.md` filename as EVM (not `program_inventory.md`):
 
 | File | Status check | Minimum-valid-draft content |
@@ -74,12 +74,12 @@ the SC gate is uniform across all languages â€” Solana uses the same
 
 | Turns | Activity |
 |---|---|
-| 1â€“2  | `ls {SCRATCHPAD}/` + top-level project inspection (Anchor.toml, Cargo.toml, README.md) |
-| 3â€“8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
-| 9â€“25 | Enrich design_context.md (deepest artifact) from docs + key programs |
-| 26â€“45 | Enrich template_recommendations.md with triggered skills based on attack surface |
-| 46â€“60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
-| 61â€“80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
+| 1—2  | `ls {SCRATCHPAD}/` + top-level project inspection (Anchor.toml, Cargo.toml, README.md) |
+| 3—8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
+| 9—25 | Enrich design_context.md (deepest artifact) from docs + key programs |
+| 26—45 | Enrich template_recommendations.md with triggered skills based on attack surface |
+| 46—60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
+| 61—80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
 
 If you reach turn 70 and have not re-written all artifacts with real
 content, STOP exploration and overwrite the remaining drafts with
@@ -191,7 +191,7 @@ Read ~/.claude/agents/skills/solana/fork-ancestry/SKILL.md and execute all 4 ste
    - Anchor version -- note for known vuln cross-reference
 6. If build fails after 3 attempts, document failure and continue
 
-Also run: `git rev-list --count HEAD` â€” if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
+Also run: `git rev-list --count HEAD` " if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
 
 Write to {SCRATCHPAD}/build_status.md:
 ```markdown
@@ -213,7 +213,7 @@ Solana static analyzers (e.g., Fender, cargo clippy custom lints) may
 not be available on all systems. Treat them as best-effort. If a CLI
 analyzer is installed, run it and append its output to
 {SCRATCHPAD}/static_analysis.md under a labeled section. If none are
-available, proceed with grep-based extraction below â€” that is the
+available, proceed with grep-based extraction below " that is the
 PRIMARY method.
 
 Set `FENDER_AVAILABLE = false` unless a working Fender CLI is
@@ -259,11 +259,11 @@ Write to {SCRATCHPAD}/modifiers.md
 
 ```
 ## Operational Implications
-State what each invariant means for how the system works â€” not what it checks,
+State what each invariant means for how the system works " not what it checks,
 but what it tells you about the system's accounting model.
 Derive these from the invariant formulas and the account/struct definitions in the code.
 Each implication must reference specific data structure signatures or formula
-components â€” restating the invariant in different words is not an implication.
+components " restating the invariant in different words is not an implication.
 ```
 
 6. **Trust Assumption Table** (MANDATORY): From ASSUMPTIONS.txt, docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
@@ -350,7 +350,7 @@ Grep in program .rs files (exclude target/, tests/, node_modules/, .anchor/):
 | `migrate\|upgrade\|v2\|deprecated\|legacy` | MIGRATION |
 | `ed25519_program\|Secp256k1\|verify_signature\|Signature\|ed25519_instruction\|Secp256k1Program` | HAS_SIGNATURES |
 | `approve\|delegate\|authorized_amount\|deposit_for\|stake_for\|delegate_to\|_on_behalf\|_for_user\|mint_to(.*target\|transfer(.*target` (public instructions with target address/pubkey parameter writing state for that target) | MULTI_STEP_OPS |
-| CPI targets to known program IDs or named protocol crates: `jupiter\|marinade\|raydium\|orca\|drift\|solend\|marginfi\|mango\|phoenix\|kamino\|tensor\|metaplex\|jito\|spl_stake_pool\|pyth_sdk\|switchboard` (EXCLUDE: anchor_lang, spl_token, solana_program â€” standard framework crates) | NAMED_EXTERNAL_PROTOCOL |
+| CPI targets to known program IDs or named protocol crates: `jupiter\|marinade\|raydium\|orca\|drift\|solend\|marginfi\|mango\|phoenix\|kamino\|tensor\|metaplex\|jito\|spl_stake_pool\|pyth_sdk\|switchboard` (EXCLUDE: anchor_lang, spl_token, solana_program " standard framework crates) | NAMED_EXTERNAL_PROTOCOL |
 
 Write to {SCRATCHPAD}/detected_patterns.md
 
@@ -438,7 +438,7 @@ For EACH recommended template provide: Trigger, Relevance, Instantiation Paramet
 | TEMPORAL_PARAMETER_STALENESS | TEMPORAL flag | {YES/NO} | {temporal patterns with cached params} |
 | ECONOMIC_DESIGN_AUDIT | MONETARY_PARAMETER flag | {YES/NO} | {monetary parameter setters found} |
 | EXTERNAL_PRECONDITION_AUDIT | CPI targets detected | {YES/NO} | {N external CPI targets} |
-| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols â€” e.g., "Jupiter, Marinade"} |
+| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols " e.g., "Jupiter, Marinade"} |
 | ORACLE_ANALYSIS | ORACLE flag | {YES/NO} | {Pyth/Switchboard patterns found} |
 | FLASH_LOAN_INTERACTION | FLASH_LOAN flag | {YES/NO} | {flash loan patterns found} |
 | ZERO_STATE_RETURN | Vault/first-depositor | {YES/NO} | {vault pattern found} |

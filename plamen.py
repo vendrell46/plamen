@@ -2369,6 +2369,168 @@ def _install_codex_adapter(w):
     return True
 
 
+def run_doctor():
+    """Fast install-verification — no audit run, no paid API calls.
+
+    Checks every artifact the wizard / driver depends on:
+      * Plamen home dir + manifest present
+      * Required CLIs on PATH (python, git, npx — plus claude OR codex)
+      * Python deps importable (rich, InquirerPy, core RAG packages)
+      * ~/.claude symlinks resolving (Claude backend)
+      * ~/.codex/plamen symlink resolving (Codex backend, if installed)
+      * Submodules populated (custom-mcp/slither-mcp, farofino-mcp)
+      * settings.json / CLAUDE.md markers intact
+
+    Exit 0 if all green. Exit 1 if any check fails — useful for CI.
+    """
+    import json as _json
+
+    w = sys.stdout.write
+    show_banner()
+    console.print(Rule(title="Plamen Doctor", style="color(238)"))
+
+    failures = []
+    warnings = []
+
+    def ok(msg):
+        w(f"  {_C_GREEN}✓{_RST} {msg}\n")
+
+    def fail(msg):
+        w(f"  {_C_RED}✗{_RST} {msg}\n")
+        failures.append(msg)
+
+    def warn(msg):
+        w(f"  {_C_ORANGE}!{_RST} {msg}\n")
+        warnings.append(msg)
+
+    # 1. Plamen home dir
+    plamen_dir = os.path.normpath(os.path.expanduser("~/.plamen"))
+    if os.path.isdir(plamen_dir):
+        ok(f"~/.plamen exists at {plamen_dir}")
+    elif os.path.normpath(PLAMEN_HOME) != plamen_dir:
+        warn(f"~/.plamen missing; running from {PLAMEN_HOME}")
+    else:
+        fail("~/.plamen missing")
+
+    # 2. Required CLIs
+    for tool in ("python", "git", "npx"):
+        binary = _find_bin(tool) or (_find_bin("python3") if tool == "python" else "")
+        if binary:
+            ok(f"`{tool}` on PATH ({binary})")
+        else:
+            fail(f"`{tool}` not on PATH")
+
+    claude_bin = _find_bin("claude") or _find_bin("claude.cmd")
+    codex_bin = _find_codex_bin()
+    if claude_bin or codex_bin:
+        if claude_bin:
+            ok(f"`claude` on PATH ({claude_bin})")
+        else:
+            warn("`claude` not on PATH (Claude Code backend unavailable)")
+        if codex_bin:
+            ok(f"`codex` on PATH ({codex_bin})")
+        else:
+            warn("`codex` not on PATH (Codex CLI backend unavailable)")
+    else:
+        fail("Neither `claude` nor `codex` on PATH — no backend usable")
+
+    # 3. Python deps
+    for mod in ("rich", "InquirerPy"):
+        try:
+            __import__(mod)
+            ok(f"Python module `{mod}` importable")
+        except ImportError:
+            fail(f"Python module `{mod}` missing (run `plamen install`)")
+    for mod, hint in (("sentence_transformers", "RAG"), ("chromadb", "RAG")):
+        try:
+            __import__(mod)
+            ok(f"Python module `{mod}` importable")
+        except ImportError:
+            warn(f"Python module `{mod}` missing — {hint} disabled (`plamen rag` to build)")
+
+    # 4. ~/.claude install (if claude backend exists)
+    if claude_bin:
+        manifest_path = os.path.join(CLAUDE_HOME, _PLAMEN_MANIFEST)
+        if os.path.isfile(manifest_path):
+            ok(f"Plamen manifest at {manifest_path}")
+            try:
+                with open(manifest_path) as f:
+                    m = _json.load(f)
+                installed = m.get("installed", [])
+                missing_links = [p for p in installed if not os.path.exists(p)]
+                if missing_links:
+                    fail(f"{len(missing_links)} symlinked items missing on disk (re-run `plamen install`)")
+                else:
+                    ok(f"All {len(installed)} symlinked items resolve")
+            except Exception as e:
+                fail(f"Manifest unreadable: {e}")
+        else:
+            warn(f"No Plamen manifest at {manifest_path} (run `plamen install`)")
+
+        claude_md = os.path.join(CLAUDE_HOME, "CLAUDE.md")
+        if os.path.isfile(claude_md):
+            try:
+                with open(claude_md, "r", encoding="utf-8") as f:
+                    text = f.read()
+                if "<!-- PLAMEN:START -->" in text and "<!-- PLAMEN:END -->" in text:
+                    ok("CLAUDE.md has Plamen marker block")
+                else:
+                    warn("CLAUDE.md missing PLAMEN markers (re-run `plamen install`)")
+            except OSError as e:
+                warn(f"Could not read CLAUDE.md: {e}")
+        else:
+            warn("CLAUDE.md missing")
+
+    # 5. ~/.codex install (if codex backend exists)
+    if codex_bin:
+        codex_plamen = os.path.normpath(os.path.expanduser("~/.codex/plamen"))
+        if os.path.isdir(codex_plamen) or os.path.islink(codex_plamen):
+            ok(f"~/.codex/plamen exists ({codex_plamen})")
+        else:
+            warn("~/.codex/plamen missing (run `plamen install --codex`)")
+        agents_md = os.path.normpath(os.path.expanduser("~/.codex/AGENTS.md"))
+        if os.path.isfile(agents_md):
+            ok("~/.codex/AGENTS.md present")
+        else:
+            warn("~/.codex/AGENTS.md missing (run `plamen install --codex`)")
+
+    # 6. Submodules populated
+    for sub, critical_for in (
+        ("custom-mcp/slither-mcp", "EVM static analysis"),
+        ("custom-mcp/farofino-mcp", "EVM/Aderyn integration"),
+    ):
+        path = os.path.join(PLAMEN_HOME, sub)
+        if not os.path.isdir(path):
+            warn(f"{sub} dir missing entirely")
+            continue
+        has_setup = (
+            os.path.isfile(os.path.join(path, "setup.py"))
+            or os.path.isfile(os.path.join(path, "pyproject.toml"))
+            or os.listdir(path)
+        )
+        if has_setup:
+            ok(f"Submodule `{sub}` populated")
+        else:
+            warn(f"Submodule `{sub}` empty — {critical_for} unavailable. "
+                 f"Run `git -C ~/.plamen submodule update --init --recursive`.")
+
+    # Summary
+    w("\n")
+    if not failures and not warnings:
+        w(f"  {_C_GREEN}All checks green — Plamen is ready.{_RST}\n\n")
+        return 0
+    if failures:
+        w(f"  {_C_RED}{len(failures)} hard failure(s):{_RST}\n")
+        for f in failures:
+            w(f"    {_C_RED}- {f}{_RST}\n")
+    if warnings:
+        w(f"  {_C_ORANGE}{len(warnings)} warning(s):{_RST}\n")
+        for f in warnings:
+            w(f"    {_C_ORANGE}- {f}{_RST}\n")
+    w("\n")
+    return 0 if not failures else 1
+
+
 def run_migrate():
     """Atomic v1.x → v2.x migration.
 
@@ -2390,10 +2552,21 @@ def run_migrate():
     plamen_dir = os.path.normpath(os.path.expanduser("~/.plamen"))
     claude_dir = CLAUDE_HOME
 
+    # v1.x put the whole repo in ~/.claude/. Detect by ANY of the usual
+    # tracked top-level entries — broaden vs the prior commands+agents
+    # AND-check, which missed users mid-migration who had renamed or
+    # cleared one of the two.
+    _v1_marker_paths = [
+        os.path.join(claude_dir, "commands", "plamen.md"),
+        os.path.join(claude_dir, "commands", "plamen-l1.md"),
+        os.path.join(claude_dir, "agents", "depth-token-flow.md"),
+        os.path.join(claude_dir, "scripts", "plamen_driver.py"),
+        os.path.join(claude_dir, "plamen.py"),
+        os.path.join(claude_dir, "rules", "orchestrator-rules.md"),
+    ]
     looks_like_v1 = (
         not os.path.isdir(plamen_dir)
-        and os.path.isfile(os.path.join(claude_dir, "commands", "plamen.md"))
-        and os.path.isdir(os.path.join(claude_dir, "agents"))
+        and any(os.path.exists(p) for p in _v1_marker_paths)
     )
     has_git = os.path.isdir(os.path.join(claude_dir, ".git"))
 
@@ -4375,6 +4548,7 @@ def main():
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}install{_RST}                      Non-interactive install (symlinks + config)\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}setup{_RST}                        Install + interactive toolchain wizard + RAG\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}migrate{_RST}                      Migrate v1.x install (~/.claude) to v2.x (~/.plamen)\n")
+            w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}doctor{_RST}                       Verify install (no audit run, no API calls)\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}rag{_RST}                          Rebuild RAG database only\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}uninstall{_RST}                    Remove from ~/.claude\n")
             w(f"    {_C_ORANGE}plamen{_RST} {_C_GRAY}install --codex{_RST}             Install Codex adapter\n")
@@ -4438,6 +4612,10 @@ def main():
         if arg == "migrate":
             run_migrate()
             return
+
+        if arg in ("doctor", "verify", "check"):
+            rc = run_doctor()
+            sys.exit(rc)
 
         if arg == "resume":
             show_banner()

@@ -26,7 +26,7 @@ Read:
 - {SCRATCHPAD}/findings_inventory.md (what WAS analyzed)
 - {SCRATCHPAD}/constraint_variables.md (admin-changeable parameters)
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (accounts, tokens, parameters, call sites) as a numbered list before analysis begins.
@@ -68,14 +68,14 @@ Apply Rule 13: Model who is harmed in each direction. An admin decreasing a thre
 - Does its setter enforce bounds? (min/max checks before writing to account data)
 - Can the new value be set below accumulated state? (setter regression)
 - Is there a related parameter that must maintain coherence? (constraint coherence)
-- **Silent misconfiguration**: If the setter has NO bounds check, trace downstream math with an accepted-but-extreme value. Does the instruction revert, or does it silently produce wrong results? A setter that accepts any value AND downstream math silently breaks for part of the accepted range is a finding â€” even without an attacker.
+- **Silent misconfiguration**: If the setter has NO bounds check, trace downstream math with an accepted-but-extreme value. Does the instruction revert, or does it silently produce wrong results? A setter that accepts any value AND downstream math silently breaks for part of the accepted range is a finding " even without an attacker.
 
 ## CHECK 2e: Approval/Delegate Sequence Conflicts (IF approve/delegate patterns detected in scope)
-Skip this check if no `approve`, `delegate`, or `authorized_amount` patterns are detected in the scoped programs. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Pattern | Note] â€” do NOT trace execution, compute impacts, or construct exploitation scenarios. The niche agent handles deep analysis.
+Skip this check if no `approve`, `delegate`, or `authorized_amount` patterns are detected in the scoped programs. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Pattern | Note] " do NOT trace execution, compute impacts, or construct exploitation scenarios. The niche agent handles deep analysis.
 For each multi-instruction transaction (composed CPIs, batch operations), enumerate all approve/delegate/authorize calls. If the same (delegate, token_account) pair is authorized more than once, verify amounts are additive or the second accounts for the first. Sequential overwrites â†’ FINDING.
 
 ## CHECK 2f: Infrastructure Address Targeting (IF on-behalf-of patterns detected in scope)
-Skip this check if no `deposit_for`, `stake_for`, `delegate_to`, or similar on-behalf-of instruction patterns are detected. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Target Param | Note] â€” do NOT trace execution or compute impacts.
+Skip this check if no `deposit_for`, `stake_for`, `delegate_to`, or similar on-behalf-of instruction patterns are detected. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Target Param | Note] " do NOT trace execution or compute impacts.
 For each public instruction that writes state keyed by an address/pubkey parameter (e.g., deposit_for(target), stake_for(target), delegate_to(target)): can any protocol PDA or singleton account be used as the target? If yes, what state is imposed on it, and does it break protocol operations? â†’ FINDING.
 
 **Coverage assertion**: Before returning, verify every entity enumerated under each CHECK has been processed. Report enumerated vs analyzed counts in your return message.
@@ -109,7 +109,7 @@ Read:
 - {SCRATCHPAD}/state_variables.md (account structures)
 - Source files for all in-scope programs
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (guards, modifiers, overrides, functions) as a numbered list before analysis begins.
@@ -192,7 +192,7 @@ Read:
 - {SCRATCHPAD}/state_variables.md
 - Source files for all in-scope programs
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (roles, capabilities, functions, call paths) as a numbered list before analysis begins.
@@ -239,8 +239,8 @@ Check Cargo.toml: if the `idl-build` feature is present OR `no-idl` is absent (I
 
 | Check | Status | Finding? |
 |-------|--------|----------|
-| IDL feature enabled in Cargo.toml? | YES/NO | If YES: 7 hidden permissionless instructions exist on-chain (IdlCreateAccount, IdlCreateBuffer, etc.) â€” note for developers |
-| `IdlCreateAccount` authority claimable by anyone? | YES (always, by design) | If program is deployed and IDL PDA unclaimed: LOW â€” attacker can claim IDL authority, upload fake IDL to explorers, block legitimate IDL upload |
+| IDL feature enabled in Cargo.toml? | YES/NO | If YES: 7 hidden permissionless instructions exist on-chain (IdlCreateAccount, IdlCreateBuffer, etc.) " note for developers |
+| `IdlCreateAccount` authority claimable by anyone? | YES (always, by design) | If program is deployed and IDL PDA unclaimed: LOW " attacker can claim IDL authority, upload fake IDL to explorers, block legitimate IDL upload |
 | `IdlCreateBuffer` available as cosplay primitive? | YES (if IDL enabled) | Cross-reference with Section 3 of account-validation: any discriminator bypass finding is amplified (see account-validation skill) |
 
 If IDL feature enabled â†’ recommend developers either: (a) disable IDL feature (`no-idl` in Cargo.toml), (b) claim IDL PDA immediately after deployment, or (c) upgrade to Anchor >= v0.31.0 which restricts `IdlCreateAccount` to program authority.
@@ -278,7 +278,7 @@ Read:
 - {SCRATCHPAD}/state_variables.md
 - Source files for all in-scope programs
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (validations, operators, guards, functions) as a numbered list before analysis begins.
@@ -379,7 +379,7 @@ For EVERY validation that protects against value loss (slippage checks, balance 
 | Validation | What It Measures | What It Should Measure | Match? |
 |-----------|-----------------|----------------------|--------|
 
-**Classification** â€” for each validation, determine:
+**Classification** " for each validation, determine:
 - Does it check ABSOLUTE state (total balance) or RELATIVE change (delta per operation)?
 - Does it check AGGREGATE result (batch total) or PER-ITEM result (individual operation)?
 - Does it check a PROXY metric (correlated value) or the DIRECT metric (actual value at risk)?
@@ -413,7 +413,7 @@ Return: 'DONE: {N} instructions swept, {M} boundary issues, {K} reachability gap
 ## Sibling Propagation Agent
 
 > **Trigger**: Always runs IN PARALLEL with Validation Sweep (iteration 1 only).
-> **Purpose**: Propagate confirmed root cause patterns to sibling functions. Extracted from Validation Sweep to avoid positional attention degradation (was CHECK 9 of 9 â€” highest cognitive load in worst attention position).
+> **Purpose**: Propagate confirmed root cause patterns to sibling functions. Extracted from Validation Sweep to avoid positional attention degradation (was CHECK 9 of 9 " highest cognitive load in worst attention position).
 > **Budget**: Scanner-tier (part of fixed base count, not depth budget).
 
 ```
@@ -440,7 +440,7 @@ For each Medium+ CONFIRMED or PARTIAL finding in findings_inventory.md:
 ## Output
 Write to {SCRATCHPAD}/sibling_propagation_findings.md
 Use finding IDs [SP-1], [SP-2], etc. with standard finding format.
-Maximum 8 findings â€” prioritize by severity.
+Maximum 8 findings " prioritize by severity.
 
 ## Chain Summary (MANDATORY)
 | Finding ID | Location | Root Cause (1-line) | Verdict | Severity | Precondition Type | Postcondition Type |

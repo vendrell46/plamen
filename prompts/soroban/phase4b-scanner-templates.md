@@ -20,7 +20,7 @@ Every agent spawned from this file MUST follow this protocol for each CHECK/step
 Task(subagent_type="general-purpose", prompt="
 You are Blind Spot Scanner A for a Soroban contract audit. Find what breadth agents NEVER LOOKED AT for tokens, parameters, and storage classification.
 
-**FIRST ACTION**: Use the Write tool to create `{SCRATCHPAD}/blind_spot_a_findings.md` with a one-line header `# Blind Spot Scanner A â€” Tokens & Parameters`. This reserves your write budget so the file exists on disk even if your analysis is interrupted.
+**FIRST ACTION**: Use the Write tool to create `{SCRATCHPAD}/blind_spot_a_findings.md` with a one-line header `# Blind Spot Scanner A " Tokens & Parameters`. This reserves your write budget so the file exists on disk even if your analysis is interrupted.
 
 ## Your Inputs
 Read:
@@ -29,7 +29,7 @@ Read:
 - {SCRATCHPAD}/constraint_variables.md (admin-changeable parameters)
 - {SCRATCHPAD}/state_variables.md (storage entries and their types)
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (tokens, assets, parameters, storage keys) as a numbered list before analysis begins.
@@ -64,7 +64,7 @@ If ANY token has findings covering â‰¤2 of 5 dimensions AND uncovered dimens
 | Call Site | Current Allowance Assumed Zero? | Race-Condition-Safe (set to 0 first)? | Allowance Storage Type | Expiry Ledger Checked? |
 |-----------|--------------------------------|--------------------------------------|------------------------|------------------------|
 
-Temporary storage allowances expire silently â€” callers assuming a non-zero allowance after ledger gap â†’ BLIND SPOT.
+Temporary storage allowances expire silently " callers assuming a non-zero allowance after ledger gap â†’ BLIND SPOT.
 
 ## CHECK 2: Governance-Changeable Parameter Coverage
 For each parameter with an admin setter function in constraint_variables.md:
@@ -77,9 +77,9 @@ Apply Rule 13: Model who is harmed in each direction. An admin decreasing a fee 
 
 **Apply Rule 14**: For each parameter:
 - Does its setter enforce bounds? (min/max checks before writing to storage)
-- Can the new value be set below accumulated state? (setter regression â€” e.g., max_supply set below total_supply)
+- Can the new value be set below accumulated state? (setter regression " e.g., max_supply set below total_supply)
 - Is there a related parameter that must maintain coherence? (constraint coherence)
-- **Silent misconfiguration**: If the setter has NO bounds check, trace downstream math with an accepted-but-extreme value. Does the function panic or silently produce wrong results? A setter that accepts any value AND downstream math silently breaks for part of the accepted range is a finding â€” even without an attacker.
+- **Silent misconfiguration**: If the setter has NO bounds check, trace downstream math with an accepted-but-extreme value. Does the function panic or silently produce wrong results? A setter that accepts any value AND downstream math silently breaks for part of the accepted range is a finding " even without an attacker.
 
 **Retroactive effects**: For each parameter that affects in-flight operations (pending withdrawals, active positions, locked balances):
 - If the parameter changes between the start and end of a user action sequence, does the user face unexpected outcomes? â†’ FINDING if retroactive change is possible and harmful.
@@ -91,7 +91,7 @@ For each piece of state stored in the contract:
 |-------------|---------------------------------------------|--------------|-----------------|---------|
 
 Classification rules:
-- **Instance storage**: Lives as long as the contract instance. Correct for: contract config, owner, global parameters. WRONG for: per-user balances, timelocks, escrow amounts (all users share the same TTL â€” if anyone extends instance TTL, all live; if no one does, all expire together).
+- **Instance storage**: Lives as long as the contract instance. Correct for: contract config, owner, global parameters. WRONG for: per-user balances, timelocks, escrow amounts (all users share the same TTL " if anyone extends instance TTL, all live; if no one does, all expire together).
 - **Persistent storage**: Has its own TTL per key. Correct for: per-user balances, per-position state, timelocks, long-lived records. WRONG for: high-churn temporary data that inflates ledger state.
 - **Temporary storage**: Exists only for the current ledger (or until TTL expires, typically 1 ledger). Correct for: re-entrancy locks, flash-loan flags, session nonces. WRONG for: timelocks, escrow amounts, voting state, any data that must survive across transactions.
 
@@ -135,7 +135,7 @@ Return: 'DONE: {N} blind spots - Check1: {A} token/SAC gaps, Check2: {B} paramet
 Task(subagent_type="general-purpose", prompt="
 You are Blind Spot Scanner B for a Soroban contract audit. Find what breadth agents NEVER LOOKED AT for access control completeness, cross-contract call safety, upgrade protection, and Instance storage bounds.
 
-**FIRST ACTION**: Use the Write tool to create `{SCRATCHPAD}/blind_spot_b_findings.md` with a one-line header `# Blind Spot Scanner B â€” Access Control & Upgrade Safety`. This reserves your write budget so the file exists on disk even if your analysis is interrupted.
+**FIRST ACTION**: Use the Write tool to create `{SCRATCHPAD}/blind_spot_b_findings.md` with a one-line header `# Blind Spot Scanner B " Access Control & Upgrade Safety`. This reserves your write budget so the file exists on disk even if your analysis is interrupted.
 
 ## Your Inputs
 Read:
@@ -145,7 +145,7 @@ Read:
 - {SCRATCHPAD}/attack_surface.md
 - Source files for all in-scope contracts
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (functions, call sites, roles, storage entries) as a numbered list before analysis begins.
@@ -160,10 +160,10 @@ For each state-modifying function in the contract:
 
 Rules:
 - Every function that writes to storage or transfers tokens MUST call `require_auth` for the relevant address.
-- `require_auth` must be called for the AFFECTED address â€” not merely the caller. If `transfer(from, to, amount)` only checks `env.invoker()` rather than `from.require_auth()`, any approved invoker can drain arbitrary `from` accounts.
+- `require_auth` must be called for the AFFECTED address " not merely the caller. If `transfer(from, to, amount)` only checks `env.invoker()` rather than `from.require_auth()`, any approved invoker can drain arbitrary `from` accounts.
 - `require_auth_for_args` vs `require_auth`: verify the correct variant is used. `require_auth_for_args` scopes authorization to specific arguments; `require_auth` authorizes any call. If a function should scope authorization to specific amounts or assets, bare `require_auth` is insufficient.
 - Admin-only functions: verify the admin identity is loaded from storage (not from a function argument) before calling `require_auth`.
-- Also flag: functions that emit events but perform NO state write AND have no auth check â€” these allow anyone to forge events that mislead off-chain indexers and frontends.
+- Also flag: functions that emit events but perform NO state write AND have no auth check " these allow anyone to forge events that mislead off-chain indexers and frontends.
 - Also flag: admin setter functions that modify protocol parameters but do NOT emit an event. Admin parameter changes without events are unmonitorable.
 
 ## CHECK 6: Cross-Contract Call Safety
@@ -173,8 +173,8 @@ For each cross-contract invocation (`invoke_contract` or `try_invoke_contract`):
 |-----------|----------------|--------------------------|---------------|-----------------------------------|--------------------|----------------------|
 
 Rules:
-- `invoke_contract` panics on failure â€” if any state was written BEFORE the call, the panic reverts the entire transaction (Soroban's atomic model). Verify this is the intended behavior. If partial commits are possible, it is a BLIND SPOT.
-- `try_invoke_contract` returns a `Result` â€” verify the error is properly handled and does NOT leave the contract in an inconsistent state (e.g., tokens deducted but cross-contract credit not applied).
+- `invoke_contract` panics on failure " if any state was written BEFORE the call, the panic reverts the entire transaction (Soroban's atomic model). Verify this is the intended behavior. If partial commits are possible, it is a BLIND SPOT.
+- `try_invoke_contract` returns a `Result` " verify the error is properly handled and does NOT leave the contract in an inconsistent state (e.g., tokens deducted but cross-contract credit not applied).
 - **Stale contractimport**: If the contract was compiled against an older version of an imported contract's interface (using `contractimport!`), function signatures may have changed. Verify the imported WASM hash matches the currently deployed contract.
 - **Re-entrancy via cross-contract**: Soroban does not have EVM-style re-entrancy, but a cross-contract call CAN call back into the original contract within the same transaction. Verify state is fully settled before any outbound call that could trigger a callback.
 - **Auth forwarding**: Does the cross-contract call need `require_auth` from the user? Verify the auth context is forwarded correctly; missing auth forwarding causes silent permission escalation.
@@ -191,7 +191,7 @@ Rules:
 - Migration function: if the upgrade changes storage structure, a migration function must be called to transform existing data. Verify the migration is atomic with the upgrade or that there is no window where the new code reads old (now-misinterpreted) data.
 - Timelock: is there a delay between announcing an upgrade and applying it? Without a timelock, a compromised admin can upgrade to malicious code without user recourse.
 - **Constructor re-initialization**: After `update_current_contract_wasm`, can the `initialize` (or equivalent) function be called again? If so, can an attacker reset admin/config to attacker-controlled values?
-- **Constructor NON-execution after upgrade (CAP-0058)**: When a contract's code is updated, the `__constructor` is NOT called. If the new WASM expects state initialized by `__constructor` that the old WASM did not have, the new code reads uninitialized storage (`None` / zero). Trace all state variables consumed by the new code â€” if any are only set in `__constructor` or a new `initialize` function, verify the deployment/migration process explicitly calls the initialization. Uninitialized state can silently break invariants or bypass checks.
+- **Constructor NON-execution after upgrade (CAP-0058)**: When a contract's code is updated, the `__constructor` is NOT called. If the new WASM expects state initialized by `__constructor` that the old WASM did not have, the new code reads uninitialized storage (`None` / zero). Trace all state variables consumed by the new code " if any are only set in `__constructor` or a new `initialize` function, verify the deployment/migration process explicitly calls the initialization. Uninitialized state can silently break invariants or bypass checks.
 
 ## CHECK 8: Instance Storage Bounds
 For each use of Vec or Map stored in Instance storage:
@@ -235,7 +235,7 @@ Return: 'DONE: {N} blind spots - Check5: {A} require_auth gaps, Check6: {B} cros
 Task(subagent_type="general-purpose", prompt="
 You are Blind Spot Scanner C for a Soroban contract audit. Find what breadth agents NEVER LOOKED AT for arithmetic safety, panic handling, and Temporary storage misuse for critical data.
 
-**FIRST ACTION**: Use the Write tool to create `{SCRATCHPAD}/blind_spot_c_findings.md` with a one-line header `# Blind Spot Scanner C â€” Overflow & Panic Safety`. This reserves your write budget so the file exists on disk even if your analysis is interrupted.
+**FIRST ACTION**: Use the Write tool to create `{SCRATCHPAD}/blind_spot_c_findings.md` with a one-line header `# Blind Spot Scanner C " Overflow & Panic Safety`. This reserves your write budget so the file exists on disk even if your analysis is interrupted.
 
 ## Your Inputs
 Read:
@@ -244,7 +244,7 @@ Read:
 - {SCRATCHPAD}/state_variables.md
 - Source files for all in-scope contracts (including Cargo.toml)
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (arithmetic sites, unwrap sites, storage entries) as a numbered list before analysis begins.
@@ -267,7 +267,7 @@ For each arithmetic expression NOT protected by overflow-checks:
 
 Special attention:
 - **i128 boundary**: Soroban uses `i128` for amounts. `i128::MAX` = 170141183460469231731687303715884105727. Adding two large positive i128 values can overflow even though i128 is large.
-- **u32/u64 to i128 cast**: Widening casts are safe. Narrowing casts (i128 â†’ u64) silently truncate if the value exceeds u64::MAX â€” verify with `u64::try_from` not `as u64`.
+- **u32/u64 to i128 cast**: Widening casts are safe. Narrowing casts (i128 â†’ u64) silently truncate if the value exceeds u64::MAX " verify with `u64::try_from` not `as u64`.
 - **Division before multiplication**: Solidity-style precision loss applies in Rust too. `(a / b) * c` loses precision vs `(a * c) / b`. Identify all fee/share calculations for ordering issues.
 - **checked_add / checked_mul / saturating_***: If overflow-checks are off, are the critical financial calculations using checked or saturating variants explicitly?
 
@@ -278,11 +278,11 @@ For each use of `unwrap()`, `expect()`, and `panic!()` in the contract:
 |----------|--------|-------------|----------------------------------|------------------------------|-----------|
 
 Rules:
-- `unwrap()` on a `None` or `Err` value panics with an opaque error â€” callers (including off-chain tools) cannot distinguish contract logic errors from resource-limit errors. Use `panic_with_error!(env, ContractError::XYZ)` instead.
-- `expect("msg")` is equivalent to `unwrap()` for on-chain purposes â€” the message is only visible in test mode, not on-chain.
+- `unwrap()` on a `None` or `Err` value panics with an opaque error " callers (including off-chain tools) cannot distinguish contract logic errors from resource-limit errors. Use `panic_with_error!(env, ContractError::XYZ)` instead.
+- `expect("msg")` is equivalent to `unwrap()` for on-chain purposes " the message is only visible in test mode, not on-chain.
 - Bare `panic!("msg")` is also opaque on-chain.
 - **Attacker-controlled panics**: If an attacker can supply an input that triggers `unwrap()` on a `None` value (e.g., looking up a non-existent key from a user-supplied argument), they can DoS any transaction that depends on this contract call returning successfully.
-- **Option::unwrap on storage reads**: `env.storage().persistent().get::<K, V>(&key).unwrap()` â€” if the key has expired (TTL) or was never set, this panics. Verify all storage reads use `get()` with a fallback or `has()` before `get().unwrap()`.
+- **Option::unwrap on storage reads**: `env.storage().persistent().get::<K, V>(&key).unwrap()` " if the key has expired (TTL) or was never set, this panics. Verify all storage reads use `get()` with a fallback or `has()` before `get().unwrap()`.
 - **Authorized panics**: Identify `unwrap()` calls that are intentionally panic-on-invariant-violation (acceptable). Document why they are safe. Unintentional panics on user-supplied paths are findings.
 
 ## CHECK 11: Temporary Storage for Critical Data
@@ -292,10 +292,10 @@ For each piece of state stored using `env.storage().temporary()`:
 |-------------|-----------------|--------------------------|------------------------|---------|
 
 Rules:
-- **Timelocks in Temporary storage**: A timelock stored in Temporary storage expires after its TTL. If the lock entry disappears, the contract reads it as absent/zero â€” a user locked until ledger 500000 is suddenly unlocked if the Temporary entry expires at ledger 499000. â†’ CRITICAL finding.
+- **Timelocks in Temporary storage**: A timelock stored in Temporary storage expires after its TTL. If the lock entry disappears, the contract reads it as absent/zero " a user locked until ledger 500000 is suddenly unlocked if the Temporary entry expires at ledger 499000. â†’ CRITICAL finding.
 - **Escrow amounts in Temporary storage**: If an escrow balance is stored in Temporary storage and expires, the contract may allow a user to re-initialize their escrow to zero and withdraw the underlying tokens, or it may silently lose track of the locked amount. â†’ CRITICAL finding.
-- **Voting state in Temporary storage**: Votes cast in Temporary storage expire before tallying â€” silent vote disappearance without any on-chain signal. â†’ HIGH/CRITICAL finding.
-- **Re-entrancy guards in Temporary storage**: This is CORRECT usage â€” a re-entrancy guard should be Temporary so it is cleared after the transaction.
+- **Voting state in Temporary storage**: Votes cast in Temporary storage expire before tallying " silent vote disappearance without any on-chain signal. â†’ HIGH/CRITICAL finding.
+- **Re-entrancy guards in Temporary storage**: This is CORRECT usage " a re-entrancy guard should be Temporary so it is cleared after the transaction.
 - **Session nonces in Temporary storage**: Correct usage if nonces are single-transaction.
 - **Allowances in Temporary storage** (SEP-41 `approve`): Allowance that expires mid-operation window causes `transfer_from` to fail silently if caller does not check for zero allowance. Document expiry ledger boundary.
 
@@ -325,7 +325,7 @@ You are the Validation Sweep Agent for a Soroban contract audit. You perform mec
 **FIRST ACTION**: Use the Write tool to create `{SCRATCHPAD}/validation_sweep_findings.md` with a one-line header `# Validation Sweep Findings`. This reserves your write budget so the file exists on disk even if your analysis is interrupted.
 
 ## INPUT FILTERING
-When cross-referencing against findings_inventory.md, focus on Medium+ severity findings only. Low/Info findings do not need cross-validation sweeps â€” the attention cost of processing 50+ findings outweighs the marginal value of sweeping Low/Info patterns.
+When cross-referencing against findings_inventory.md, focus on Medium+ severity findings only. Low/Info findings do not need cross-validation sweeps " the attention cost of processing 50+ findings outweighs the marginal value of sweeping Low/Info patterns.
 
 ## Your Inputs
 Read:
@@ -334,7 +334,7 @@ Read:
 - {SCRATCHPAD}/state_variables.md
 - Source files for all in-scope contracts
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (validations, operators, guards, functions) as a numbered list before analysis begins.
@@ -427,7 +427,7 @@ For EVERY state-modifying function that contains an if/else, match arm, or early
 - Special focus: functions where TTL extension, timestamp updates, or balance checkpoints are inside a conditional block but downstream consumers assume they always executed.
 - Special focus: functions where an "inactive" or "paused" branch updates a sequence number but NOT a corresponding accumulator, or vice versa.
 
-**Concrete test**: If `function_a` writes `last_update_ledger = env.ledger().sequence()` inside an `if amount > 0` block, what value does `last_update_ledger` retain when `amount == 0`? Trace all consumers of `last_update_ledger` â€” do they produce correct results with the stale value?
+**Concrete test**: If `function_a` writes `last_update_ledger = env.ledger().sequence()` inside an `if amount > 0` block, what value does `last_update_ledger` retain when `amount == 0`? Trace all consumers of `last_update_ledger` " do they produce correct results with the stale value?
 
 Tag: [TRACE:branch=false â†’ stateVar={old_value} â†’ consumer computes {wrong_result}]
 
@@ -438,7 +438,7 @@ For EVERY validation that protects against value loss (slippage checks, balance 
 | Validation | What It Measures | What It Should Measure | Match? |
 |-----------|-----------------|----------------------|--------|
 
-**Classification** â€” for each validation, determine:
+**Classification** " for each validation, determine:
 - Does it check ABSOLUTE state (total balance) or RELATIVE change (delta per operation)?
 - Does it check AGGREGATE result (batch total) or PER-ITEM result (individual operation)?
 - Does it check a PROXY metric (correlated value) or the DIRECT metric (actual value at risk)?
@@ -449,7 +449,7 @@ If the validation uses absolute/aggregate/proxy AND the protected operation is p
 
 ## SELF-CONSISTENCY CHECK (MANDATORY before output)
 
-For each finding you produce: if your own analysis identifies that the missing pattern/guard/check is FUNCTIONALLY REQUIRED to be absent (e.g., adding it would cause panics, break composability, or make the function unreachable), your verdict MUST be REFUTED, not CONFIRMED with caveats. A finding that says "X is missing" and also explains "adding X would break Y" is self-contradictory â€” resolve the contradiction before outputting.
+For each finding you produce: if your own analysis identifies that the missing pattern/guard/check is FUNCTIONALLY REQUIRED to be absent (e.g., adding it would cause panics, break composability, or make the function unreachable), your verdict MUST be REFUTED, not CONFIRMED with caveats. A finding that says "X is missing" and also explains "adding X would break Y" is self-contradictory " resolve the contradiction before outputting.
 
 ## Output
 Write to {SCRATCHPAD}/validation_sweep_findings.md:
@@ -472,7 +472,7 @@ Return: 'DONE: {N} functions swept, {M} boundary issues, {K} reachability gaps, 
 ## Sibling Propagation Agent
 
 > **Trigger**: Always runs IN PARALLEL with Validation Sweep (iteration 1 only).
-> **Purpose**: Propagate confirmed root cause patterns to sibling functions. Extracted from Validation Sweep to avoid positional attention degradation (was CHECK 9 of 9 â€” highest cognitive load in worst attention position).
+> **Purpose**: Propagate confirmed root cause patterns to sibling functions. Extracted from Validation Sweep to avoid positional attention degradation (was CHECK 9 of 9 " highest cognitive load in worst attention position).
 > **Budget**: Scanner-tier (part of fixed base count, not depth budget).
 
 ```
@@ -501,7 +501,7 @@ For each Medium+ CONFIRMED or PARTIAL finding in findings_inventory.md:
 ## Output
 Write to {SCRATCHPAD}/sibling_propagation_findings.md
 Use finding IDs [SP-1], [SP-2], etc. with standard finding format.
-Maximum 8 findings â€” prioritize by severity.
+Maximum 8 findings " prioritize by severity.
 
 ## Chain Summary (MANDATORY)
 | Finding ID | Location | Root Cause (1-line) | Verdict | Severity | Precondition Type | Postcondition Type |
@@ -581,7 +581,7 @@ For each yield distribution, reward streaming, or vesting mechanism:
 2. Is there a cooldown, lock period, or time-weighted balance that prevents ledger-sandwich attacks?
 3. For streaming/vesting: can a user enter AFTER streaming starts but before it ends and capture already-vested gains at the current share price?
 4. **Ledger-atomic sandwiching**: Unlike EVM (where block timestamps are coarse), Soroban ledgers close approximately every 5 seconds. Verify whether a user can atomically deposit and withdraw within the same reward period by submitting both transactions in the same ledger batch.
-5. Trace: if user deposits at ledger L, reward distribution at ledger L+1, user withdraws at ledger L+2 â€” what is the user's profit vs a user deposited for the full period? If disproportionate â†’ FINDING.
+5. Trace: if user deposits at ledger L, reward distribution at ledger L+1, user withdraws at ledger L+2 " what is the user's profit vs a user deposited for the full period? If disproportionate â†’ FINDING.
 
 Tag: [TRACE:deposit_at=L, distribution_at=L+1, withdraw_at=L+2 â†’ profit={X} vs long_term_user={Y} â†’ fairness_ratio={Z}]
 

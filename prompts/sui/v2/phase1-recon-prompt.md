@@ -15,7 +15,7 @@ times out, record the failure in the relevant output file and continue
 to the next task. Never retry more than once. Partial recon is better
 than no recon.
 
-**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts â€” they're authoritative for the mechanical data they cover.
+**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts " they're authoritative for the mechanical data they cover.
 
 ## Inputs (pre-resolved by the driver)
 
@@ -46,14 +46,14 @@ call costs ONE turn. Large codebases (10k+ LOC, 30+ modules) can consume
 writing the required artifacts, the driver's gate fails and the whole
 pipeline aborts.
 
-**Rule**: In the FIRST 5â€“10 turns, write SUBSTANTIVE DRAFTS of ALL 11
+**Rule**: In the FIRST 5—10 turns, write SUBSTANTIVE DRAFTS of ALL 11
 required artifacts. A mechanical pre-pass (`recon_prepass.py`) may have
-already written some of them â€” check with `ls {SCRATCHPAD}/` FIRST and
+already written some of them " check with `ls {SCRATCHPAD}/` FIRST and
 only draft the missing ones. After drafts exist, spend remaining turns
 enriching them.
 
 The 11 required artifacts (gate will reject if any is missing). Note:
-the SC gate is uniform across all languages â€” Sui uses the same
+the SC gate is uniform across all languages " Sui uses the same
 `contract_inventory.md` filename as EVM (not `package_inventory.md`):
 
 | File | Status check | Minimum-valid-draft content |
@@ -74,12 +74,12 @@ the SC gate is uniform across all languages â€” Sui uses the same
 
 | Turns | Activity |
 |---|---|
-| 1â€“2  | `ls {SCRATCHPAD}/` + top-level project inspection (Move.toml, README.md) |
-| 3â€“8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
-| 9â€“25 | Enrich design_context.md (deepest artifact) from docs + key modules |
-| 26â€“45 | Enrich template_recommendations.md with triggered skills based on attack surface |
-| 46â€“60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
-| 61â€“80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
+| 1—2  | `ls {SCRATCHPAD}/` + top-level project inspection (Move.toml, README.md) |
+| 3—8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
+| 9—25 | Enrich design_context.md (deepest artifact) from docs + key modules |
+| 26—45 | Enrich template_recommendations.md with triggered skills based on attack surface |
+| 46—60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
+| 61—80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
 
 If you reach turn 70 and have not re-written all artifacts with real
 content, STOP exploration and overwrite the remaining drafts with
@@ -197,7 +197,7 @@ Read ~/.claude/agents/skills/sui/fork-ancestry/SKILL.md (if exists) or apply the
    - After 3 attempts, document failure and continue
 5. Check for Move.lock file (dependency resolution lockfile)
 
-Also run: `git rev-list --count HEAD` â€” if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
+Also run: `git rev-list --count HEAD` " if result is 1, include `REPO_SHAPE: squashed_import`, otherwise `REPO_SHAPE: normal_dev`. This tells FORK_ANCESTRY whether git history analysis is useful.
 
 Write to {SCRATCHPAD}/build_status.md:
 ```markdown
@@ -301,11 +301,11 @@ Write to {SCRATCHPAD}/external_interfaces.md
 
 ```
 ## Operational Implications
-State what each invariant means for how the system works â€” not what it checks,
+State what each invariant means for how the system works " not what it checks,
 but what it tells you about the system's accounting model.
 Derive these from the invariant formulas and the struct/object definitions in the code.
 Each implication must reference specific data structure signatures or formula
-components â€” restating the invariant in different words is not an implication.
+components " restating the invariant in different words is not an implication.
 ```
 
 6. **Trust Assumption Table** (MANDATORY): From ASSUMPTIONS.txt, docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
@@ -446,7 +446,7 @@ Grep in .move source files (exclude build/, tests/ directories):
 | `#\[allow(unused\|lint_allow` | SUPPRESSED_WARNING |
 | `ecdsa_k1::secp256k1_verify\|ed25519::ed25519_verify\|ecdsa_r1\|hash::blake2b256\|hmac::hmac_sha3_256` | HAS_SIGNATURES |
 | `approve\|delegate\|allowance\|deposit_for\|stake_for\|delegate_to\|_on_behalf\|_for_user` (public/entry functions with target address parameter writing state for that target) | MULTI_STEP_OPS |
-| External package calls to named protocols in Move.toml deps or use statements: `cetus\|deepbook\|suilend\|navi\|scallop\|turbos\|aftermath\|bucket\|kriya\|flowx\|kai_finance\|haedal\|pyth\|wormhole\|sui_bridge` (EXCLUDE: sui::, sui_framework::, std:: â€” standard framework modules) | NAMED_EXTERNAL_PROTOCOL |
+| External package calls to named protocols in Move.toml deps or use statements: `cetus\|deepbook\|suilend\|navi\|scallop\|turbos\|aftermath\|bucket\|kriya\|flowx\|kai_finance\|haedal\|pyth\|wormhole\|sui_bridge` (EXCLUDE: sui::, sui_framework::, std:: " standard framework modules) | NAMED_EXTERNAL_PROTOCOL |
 
 Write to {SCRATCHPAD}/detected_patterns.md with format:
 ```markdown
@@ -638,7 +638,7 @@ Available conditional templates:
 | TEMPORAL_PARAMETER_STALENESS | TEMPORAL flag | {YES/NO} | {Clock-based operations with cached params} |
 | ECONOMIC_DESIGN_AUDIT | MONETARY_PARAMETER flag | {YES/NO} | {monetary parameter setters found} |
 | EXTERNAL_PRECONDITION_AUDIT | External package calls detected | {YES/NO} | {N external package calls} |
-| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols â€” e.g., "Cetus, DeepBook"} |
+| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols " e.g., "Cetus, DeepBook"} |
 | SHARE_ALLOCATION_FAIRNESS | SHARE_ALLOCATION flag | {YES/NO} | {share/allocation patterns} |
 | CROSS_CHAIN_TIMING | CROSS_CHAIN flag | {YES/NO} | {bridge/cross-chain patterns} |
 | MIGRATION_ANALYSIS | MIGRATION or PACKAGE_UPGRADE flag | {YES/NO} | {migration/upgrade patterns} |

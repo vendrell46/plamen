@@ -15,7 +15,7 @@ times out, record the failure in the relevant output file and continue
 to the next task. Never retry more than once. Partial recon is better
 than no recon.
 
-**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts â€” they're authoritative for the mechanical data they cover.
+**FIRST ACTION**: Run `ls {SCRATCHPAD}/` to see which mechanical artifacts the deterministic pre-pass already produced. Draft only what's missing (see TURN BUDGET POLICY below). DO NOT re-generate pre-pass artifacts " they're authoritative for the mechanical data they cover.
 
 ## Inputs (pre-resolved by the driver)
 
@@ -46,9 +46,9 @@ consume 50+ turns on exploration alone. If you hit the cap or timeout
 without writing the required artifacts, the driver's gate fails and the
 whole pipeline aborts.
 
-**Rule**: In the FIRST 5â€“10 turns, write SUBSTANTIVE DRAFTS of ALL 11
+**Rule**: In the FIRST 5—10 turns, write SUBSTANTIVE DRAFTS of ALL 11
 required artifacts. A mechanical pre-pass (`recon_prepass.py`) may have
-already written some of them â€” check with `ls {SCRATCHPAD}/` FIRST and
+already written some of them " check with `ls {SCRATCHPAD}/` FIRST and
 only draft the missing ones. After drafts exist, spend remaining turns
 enriching them.
 
@@ -72,12 +72,12 @@ The 11 required artifacts (gate will reject if any is missing):
 
 | Turns | Activity |
 |---|---|
-| 1â€“2  | `ls {SCRATCHPAD}/` + top-level project inspection (foundry.toml, hardhat.config.js, package.json, README.md) |
-| 3â€“8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
-| 9â€“25 | Enrich design_context.md (deepest artifact) from docs + key contracts |
-| 26â€“45 | Enrich template_recommendations.md with triggered skills based on attack surface |
-| 46â€“60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
-| 61â€“80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
+| 1—2  | `ls {SCRATCHPAD}/` + top-level project inspection (foundry.toml, hardhat.config.js, package.json, README.md) |
+| 3—8  | Draft any artifacts not written by the pre-pass (Write tool, one per turn) |
+| 9—25 | Enrich design_context.md (deepest artifact) from docs + key contracts |
+| 26—45 | Enrich template_recommendations.md with triggered skills based on attack surface |
+| 46—60 | Enrich attack_surface.md, state_variables.md, contract_inventory.md with details the pre-pass missed |
+| 61—80 | Final pass: rewrite recon_summary.md with real content; overwrite drafts where you have enrichment |
 
 If you reach turn 70 and have not re-written all artifacts with real
 content, STOP exploration and overwrite the remaining drafts with
@@ -154,7 +154,7 @@ Continue to TASK 1.
    - **MODERATE** (200-500 `.sol` files without via-ir): Add `threads = 3` if not already set. Record `COMPILE_WEIGHT: moderate`.
    - **LIGHT** (<200 files): No change needed. Record `COMPILE_WEIGHT: light`.
    If `auto_detect_solc = true` and all src/ pragmas use the same minor version (e.g., all `^0.8.x`): pin `solc_version` to the highest patch and set `auto_detect_solc = false`. This prevents Foundry from spawning multiple solc versions.
-   **Do NOT modify** profiles other than `[profile.default]` â€” specialized profiles (medusa, invariant) may have intentional settings.
+   **Do NOT modify** profiles other than `[profile.default]` " specialized profiles (medusa, invariant) may have intentional settings.
 4. Run `forge build`
 5. If build fails: read error output, apply targeted fix from this recovery ladder:
    - **Missing import/dependency** â†’ `forge install {dep} --no-git` (extract dep name from error)
@@ -233,11 +233,11 @@ Grep interfaces directory â†’ {SCRATCHPAD}/external_interfaces.md (always, 
 
 ```
 ## Operational Implications
-State what each invariant means for how the system works â€” not what it checks,
+State what each invariant means for how the system works " not what it checks,
 but what it tells you about the system's accounting model.
 Derive these from the invariant formulas and the mapping signatures in the code.
 Each implication must reference specific data structure signatures or formula
-components â€” restating the invariant in different words is not an implication.
+components " restating the invariant in different words is not an implication.
 ```
 
 5. **Trust Assumption Table** (MANDATORY): From ASSUMPTIONS.txt, docs, README, code comments, and access control patterns, extract ALL trust assumptions into a structured table in design_context.md:
@@ -323,7 +323,7 @@ Grep for these patterns (exclude lib/, test/, mocks/):
 | `lzReceive\|ccipReceive\|receiveWormholeMessages\|_nonblockingLzReceive\|setPeer\|setTrustedRemote\|setTrustedRemoteAddress\|onOFTReceived` | CROSS_CHAIN_MSG |
 | `_safeMint\|safeTransfer\|onERC721Received\|onERC1155Received\|tokensReceived\|onTransferReceived\|onFlashLoan\|executeOperation\|FlashCallback\|beforeSwap\|afterSwap` | OUTCOME_CALLBACK |
 | `depositFor\(\|stakeFor\(\|delegateTo\(\|mintFor\(\|withdrawFor\(\|OnBehalf\(\|claimFor\(\|harvestFor\(\|compoundFor\(` OR (`approve\(\|safeApprove\(\|increaseAllowance\(\|permit\(.*deadline` AND `multicall\|batch\|aggregate\|loop.*approve\|for.*approve`) | MULTI_STEP_OPS |
-| `IUniswapV2Router\|IUniswapV3Pool\|IUniswapV4Pool\|IBalancerVault\|IWeightedPool\|IAToken\|ILendingPool\|IPool\(aave\)\|ICToken\|IComptroller\|ICurvePool\|IStableSwap\|IChainlinkAggregator\|AggregatorV3Interface\|IStETH\|IWstETH\|IContinuousClearingAuction` (EXCLUDE: @openzeppelin generic utilities, solmate, solady â€” only flag when calling protocol-specific functions) | NAMED_EXTERNAL_PROTOCOL |
+| `IUniswapV2Router\|IUniswapV3Pool\|IUniswapV4Pool\|IBalancerVault\|IWeightedPool\|IAToken\|ILendingPool\|IPool\(aave\)\|ICToken\|IComptroller\|ICurvePool\|IStableSwap\|IChainlinkAggregator\|AggregatorV3Interface\|IStETH\|IWstETH\|IContinuousClearingAuction` (EXCLUDE: @openzeppelin generic utilities, solmate, solady " only flag when calling protocol-specific functions) | NAMED_EXTERNAL_PROTOCOL |
 | `.call{value\|.call(\|.delegatecall(` targeting non-hardcoded address after state change | OUTCOME_CALLBACK_LOW_LEVEL |
 | `deadline\|claimPeriod\|default.*selection\|fallback.*assign\|getDefault\|expir` AND time-gated with fallback path | OUTCOME_DELAY |
 
@@ -425,7 +425,7 @@ After listing all recommended templates, output this binding manifest:
 | EXTERNAL_PRECONDITION_AUDIT | External interactions detected | {YES/NO} | {if YES: external contract count} |
 | STORAGE_LAYOUT_SAFETY | STORAGE_LAYOUT flag | {YES/NO} | {if YES: proxy/delegatecall/assembly patterns found} |
 | CROSS_CHAIN_MESSAGE_INTEGRITY | CROSS_CHAIN_MSG flag | {YES/NO} | {if YES: lzReceive/ccipReceive/setPeer patterns found} |
-| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols â€” e.g., "Uniswap V3, Chainlink"} |
+| INTEGRATION_HAZARD_RESEARCH | NAMED_EXTERNAL_PROTOCOL flag | {YES/NO} | {if YES: list detected protocols " e.g., "Uniswap V3, Chainlink"} |
 
 ### Binding Rules
 - SEMI_TRUSTED_ROLE flag detected â†’ SEMI_TRUSTED_ROLES **REQUIRED**
@@ -475,7 +475,7 @@ After listing all recommended templates, output this binding manifest:
 | MULTI_STEP_OPERATION_SAFETY | MULTI_STEP_OPS flag (detected_patterns.md) | {YES/NO} | {if YES: approve/safeApprove/increaseAllowance/permit or depositFor/stakeFor/delegateTo/OnBehalf patterns found} |
 | CALLBACK_RECEIVER_SAFETY | OUTCOME_CALLBACK flag (detected_patterns.md) | {YES/NO} | {if YES: callback handler patterns found - onERC721Received/tokensReceived/etc.} |
 | SPEC_COMPLIANCE_AUDIT | HAS_DOCS flag (non-empty DOCUMENTATION with testable claims) | {YES/NO} | {if YES: docs contain testable claims} |
-| DIMENSIONAL_ANALYSIS | MIXED_DECIMALS flag (mulDiv/mulWad + 1e6/1e8/decimals()/10** in scope) | {YES/NO} | {if YES: mixed-decimal fixed-point arithmetic detected â€” standalone DA agent} |
+| DIMENSIONAL_ANALYSIS | MIXED_DECIMALS flag (mulDiv/mulWad + 1e6/1e8/decimals()/10** in scope) | {YES/NO} | {if YES: mixed-decimal fixed-point arithmetic detected " standalone DA agent} |
 
 ### Manifest Summary
 - **Total Required Breadth Agents**: {count of YES in skill templates}

@@ -29,7 +29,7 @@ Read:
 - {SCRATCHPAD}/findings_inventory.md (what WAS analyzed)
 - {SCRATCHPAD}/constraint_variables.md (admin-settable parameters)
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (objects, coins, parameters, call sites) as a numbered list before analysis begins.
@@ -71,14 +71,14 @@ From constraint_variables.md, for each parameter with a setter function:
 - Does its setter enforce bounds? (min/max checks before writing to object fields)
 - Can the new value be set below accumulated state? (setter regression)
 - Is there a related parameter that must maintain coherence? (constraint coherence)
-- **Silent misconfiguration**: If the setter has NO bounds check, trace downstream math with an accepted-but-extreme value. Does the function abort, or does it silently produce wrong results? A setter that accepts any value AND downstream math silently breaks for part of the accepted range is a finding â€” even without an attacker.
+- **Silent misconfiguration**: If the setter has NO bounds check, trace downstream math with an accepted-but-extreme value. Does the function abort, or does it silently produce wrong results? A setter that accepts any value AND downstream math silently breaks for part of the accepted range is a finding " even without an attacker.
 
 ## CHECK 2e: Approval/Delegate Sequence Conflicts (IF approve/delegate patterns detected in scope)
-Skip this check if no `approve`, `delegate`, `allowance`, or consent patterns are detected in the scoped modules. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Pattern | Note] â€” do NOT trace execution, compute impacts, or construct exploitation scenarios. The niche agent handles deep analysis.
+Skip this check if no `approve`, `delegate`, `allowance`, or consent patterns are detected in the scoped modules. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Pattern | Note] " do NOT trace execution, compute impacts, or construct exploitation scenarios. The niche agent handles deep analysis.
 For each multi-step operation (PTB composed calls, batch operations over coins/objects), enumerate all consent/delegate/approve operations. If the same (spender, coin_type) pair is authorized more than once, verify amounts are additive or the second accounts for the first. Sequential overwrites â†’ FINDING.
 
 ## CHECK 2f: Infrastructure Address Targeting (IF on-behalf-of patterns detected in scope)
-Skip this check if no `deposit_for`, `stake_for`, `delegate_to`, or similar on-behalf-of function patterns are detected. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Target Param | Note] â€” do NOT trace execution or compute impacts.
+Skip this check if no `deposit_for`, `stake_for`, `delegate_to`, or similar on-behalf-of function patterns are detected. If `{SCRATCHPAD}/niche_multi_step_safety_findings.md` exists and is non-empty, limit this to listing affected functions in a table [Function | Target Param | Note] " do NOT trace execution or compute impacts.
 For each public entry function that writes state keyed by an address parameter (e.g., `deposit_for(target)`, `stake_for(target)`, `delegate_to(target)`): can any protocol shared object or singleton be used as the target? If yes, what state is imposed on it, and does it break protocol operations? â†’ FINDING.
 
 **Coverage assertion**: Before returning, verify every entity enumerated under each CHECK has been processed. Report enumerated vs analyzed counts in your return message.
@@ -116,7 +116,7 @@ Read:
 - {SCRATCHPAD}/state_variables.md (all structs and their abilities)
 - {SCRATCHPAD}/modifiers.md (access control / guard map)
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (guards, modifiers, overrides, functions) as a numbered list before analysis begins.
@@ -248,7 +248,7 @@ Read:
 - {SCRATCHPAD}/state_variables.md (all structs and abilities)
 - Source files for all in-scope modules
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (roles, capabilities, functions, call paths) as a numbered list before analysis begins.
@@ -344,7 +344,7 @@ Read:
 - {SCRATCHPAD}/modifiers.md (access control / guard map)
 - Source files for all in-scope modules
 
-## Processing Protocol (MANDATORY â€” applies to every CHECK below)
+## Processing Protocol (MANDATORY " applies to every CHECK below)
 
 For each CHECK, execute three steps in order:
 1. **ENUMERATE targets**: List every entity the CHECK applies to (validations, operators, guards, functions) as a numbered list before analysis begins.
@@ -521,7 +521,7 @@ For EVERY validation that protects against value loss (slippage checks, balance 
 | Validation | What It Measures | What It Should Measure | Match? |
 |-----------|-----------------|----------------------|--------|
 
-**Classification** â€” for each validation, determine:
+**Classification** " for each validation, determine:
 - Does it check ABSOLUTE state (total balance) or RELATIVE change (delta per operation)?
 - Does it check AGGREGATE result (batch total) or PER-ITEM result (individual operation)?
 - Does it check a PROXY metric (correlated value) or the DIRECT metric (actual value at risk)?

@@ -45,9 +45,9 @@ more than once. Partial recon is better than no recon.
 
 **MCP TIMEOUT POLICY**: When an MCP tool call returns a timeout error or fails,
 do NOT retry the same call. Record `[MCP: TIMEOUT]` and skip ALL remaining calls
-to that provider â€” switch immediately to fallback (code analysis, grep, WebSearch).
+to that provider " switch immediately to fallback (code analysis, grep, WebSearch).
 Claude Code's tool timeout is set to 300s (5 min). You cannot cancel a pending
-call â€” but you control what happens after the error returns.
+call " but you control what happens after the error returns.
 
 ## TURN BUDGET POLICY - DRAFT-FIRST, ENRICH-LATER (MANDATORY)
 
@@ -58,7 +58,7 @@ node-client codebases (50k+ LOC, 20+ crates/modules) can easily consume
 required artifacts, the driver's gate fails and the whole pipeline
 aborts.
 
-**Rule**: In the FIRST 8â€“10 turns, verify or write SUBSTANTIVE DRAFTS of
+**Rule**: In the FIRST 8—10 turns, verify or write SUBSTANTIVE DRAFTS of
 ALL EIGHT gate-required artifacts. After that, spend remaining turns enriching
 them and writing optional artifacts.
 
@@ -83,11 +83,11 @@ with gate-required artifacts): `test_infrastructure.md`,
 
 | Turns | Activity |
 |---|---|
-| 1â€“2  | `ls` the project root + read any README.md / Cargo.toml / go.mod at the top level to learn language + subsystem hints |
-| 3â€“10 | **Write/verify all 8 required drafts in rapid succession** (one Write per turn) with best-effort defaults |
-| 11â€“20 | Phase 0.5 Bake: SCIP + opengrep. If SCIP fails quickly, skip grep-fallback exploration and enrich drafts from directory structure only |
-| 21â€“60 | Enrich each required artifact with real content (reading key files, running targeted greps) |
-| 61â€“80 | Final pass: re-write recon_summary.md with actual subsystem flags, fork ancestry, opengrep hits |
+| 1—2  | `ls` the project root + read any README.md / Cargo.toml / go.mod at the top level to learn language + subsystem hints |
+| 3—10 | **Write/verify all 8 required drafts in rapid succession** (one Write per turn) with best-effort defaults |
+| 11—20 | Phase 0.5 Bake: SCIP + opengrep. If SCIP fails quickly, skip grep-fallback exploration and enrich drafts from directory structure only |
+| 21—60 | Enrich each required artifact with real content (reading key files, running targeted greps) |
+| 61—80 | Final pass: re-write recon_summary.md with actual subsystem flags, fork ancestry, opengrep hits |
 
 If you reach turn 70 and have not re-written all required artifacts with real
 content, STOP exploration and overwrite the remaining drafts with
@@ -218,13 +218,13 @@ Write to `trust_boundaries.md`.
 ### TASK 0 Step 4: Write threat_model.md (MANDATORY)
 
 Consolidate TASK 0 Steps 1, 2, 3 outputs into a single `threat_model.md`
-using the template below. This file is MANDATORY â€” the Phase 1 gate
+using the template below. This file is MANDATORY " the Phase 1 gate
 fails if it is missing.
 
 Write to `{scratchpad}/threat_model.md`:
 
 ```markdown
-# L1 Threat Model â€” {target_name}
+# L1 Threat Model " {target_name}
 
 ## Target classification
 
@@ -415,7 +415,7 @@ Read `{scratchpad}/opengrep_hits.json`. Group findings by rule, rank by confiden
 ## Opengrep Ranked Hits
 
 ### Rule: go-integer-underflow-p2p (3 hits, high confidence)
-1. `eth/protocols/eth/handler.go:245` â€” `GetHeadersFrom(number, count-1)` with count from peer input
+1. `eth/protocols/eth/handler.go:245` " `GetHeadersFrom(number, count-1)` with count from peer input
    - Applies skill: `mempool-asymmetric-dos` + `p2p-dos-and-eclipse`
    - CVE class: CVE-2024-32972 pattern
    ...
@@ -506,7 +506,7 @@ Rules for filling in the table:
    the flags you recorded in `recon_summary.md`. The composer is case-
    insensitive on YES but requires the Required column to be the 4th cell.
 2. For rows where the trigger does NOT match, set `Required` to plain
-   `NO`. Do NOT delete rows â€” the composer ignores NO rows, but leaving
+   `NO`. Do NOT delete rows " the composer ignores NO rows, but leaving
    the full table improves audit trail.
 3. Do NOT add new columns, do NOT reorder columns, do NOT rename the
    `## Injectable Skills` or `## Niche Agents` headers.
@@ -534,7 +534,7 @@ Phase 2 instantiation reads this file and spawns breadth agents ONE PER LAYER (n
 
 ## Return protocol
 
-Return ONLY: `DONE: L1 Recon complete â€” {N} layers, fork={true/false}, {K} opengrep hits` (max 1 line).
+Return ONLY: `DONE: L1 Recon complete " {N} layers, fork={true/false}, {K} opengrep hits` (max 1 line).
 
 SCOPE: Write ONLY to the scratchpad files listed above. Do NOT spawn subagents.
 Do NOT proceed to subsequent pipeline phases (breadth, depth, verification, report).

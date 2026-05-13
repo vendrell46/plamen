@@ -53,16 +53,16 @@ Write to {SCRATCHPAD}/findings_inventory.md:
 
 Check these Soroban-specific rules IN ADDITION to R1-R16:
 
-- SB1 (Auth Validation): If `env.invoker()` or `require_auth()` is used â€” verify the correct address is authenticated for the operation. If `require_auth_for_args()` is used â€” verify the args scope is not broader than intended.
-- SB2 (Storage Type Correctness): If `env.storage().instance()` is used for data that must survive ledger closes independently â€” flag for state-trace depth. Instance storage is evicted when the contract instance itself is evicted (requires no TTL extension on the data key separately).
-- SB3 (Persistent Storage TTL): If `env.storage().persistent()` is used â€” verify `extend_ttl` is called before or at the same time as reads. Missing or misplaced `extend_ttl` can result in archived data being accessed on the next ledger close.
-- SB4 (Temporary Storage Lifetime): If `env.storage().temporary()` is used â€” verify data is only relied upon within the same transaction or a bounded ledger window. Using temporary storage as if it were persistent is a critical data loss bug.
-- SB5 (Cross-Contract Call Safety): If `env.invoke_contract()` is used â€” verify the contract address is not user-supplied without validation. If `env.try_invoke_contract()` is used â€” verify the Result is handled and not silently ignored.
-- SB6 (Post-Call State Reload): If a cross-contract call mutates shared state â€” verify the caller re-reads any affected storage after the call returns. Soroban does not automatically reload storage modified by callees.
-- SB7 (overflow-checks Flag): If `[profile.release] overflow-checks = false` is found in Cargo.toml â€” flag ALL arithmetic on user-controlled values (i128, u128, u64, u32) for edge-case depth analysis.
-- SB8 (SAC vs Custom SEP-41): If a token address is accepted as a parameter â€” verify code does not assume Stellar Asset Contract semantics (no hooks, fixed 7 decimals) for tokens that could be custom SEP-41 implementations.
-- SB9 (Allowance Expiry): If `approve()` is called to set an allowance â€” verify the `expiration_ledger` parameter is set appropriately. An allowance with `expiration_ledger = 0` or a very far-future expiry may allow indefinite spending.
-- SB10 (Auth Forwarding Scope): If a contract calls another contract and forwards auth (using `require_auth` in the sub-invocation context) â€” verify the forwarded auth cannot be used by the callee to authorize operations beyond the original caller's intent.
+- SB1 (Auth Validation): If `env.invoker()` or `require_auth()` is used " verify the correct address is authenticated for the operation. If `require_auth_for_args()` is used " verify the args scope is not broader than intended.
+- SB2 (Storage Type Correctness): If `env.storage().instance()` is used for data that must survive ledger closes independently " flag for state-trace depth. Instance storage is evicted when the contract instance itself is evicted (requires no TTL extension on the data key separately).
+- SB3 (Persistent Storage TTL): If `env.storage().persistent()` is used " verify `extend_ttl` is called before or at the same time as reads. Missing or misplaced `extend_ttl` can result in archived data being accessed on the next ledger close.
+- SB4 (Temporary Storage Lifetime): If `env.storage().temporary()` is used " verify data is only relied upon within the same transaction or a bounded ledger window. Using temporary storage as if it were persistent is a critical data loss bug.
+- SB5 (Cross-Contract Call Safety): If `env.invoke_contract()` is used " verify the contract address is not user-supplied without validation. If `env.try_invoke_contract()` is used " verify the Result is handled and not silently ignored.
+- SB6 (Post-Call State Reload): If a cross-contract call mutates shared state " verify the caller re-reads any affected storage after the call returns. Soroban does not automatically reload storage modified by callees.
+- SB7 (overflow-checks Flag): If `[profile.release] overflow-checks = false` is found in Cargo.toml " flag ALL arithmetic on user-controlled values (i128, u128, u64, u32) for edge-case depth analysis.
+- SB8 (SAC vs Custom SEP-41): If a token address is accepted as a parameter " verify code does not assume Stellar Asset Contract semantics (no hooks, fixed 7 decimals) for tokens that could be custom SEP-41 implementations.
+- SB9 (Allowance Expiry): If `approve()` is called to set an allowance " verify the `expiration_ledger` parameter is set appropriately. An allowance with `expiration_ledger = 0` or a very far-future expiry may allow indefinite spending.
+- SB10 (Auth Forwarding Scope): If a contract calls another contract and forwards auth (using `require_auth` in the sub-invocation context) " verify the forwarded auth cannot be used by the callee to authorize operations beyond the original caller's intent.
 
 ## TASK 1.5: Assumption Dependency Cross-Reference
 
