@@ -26,6 +26,7 @@ The setup wizard detects your OS and installed tools, then offers to install mis
 | Node.js | 18+ | npm-based MCP servers | [nodejs.org](https://nodejs.org) |
 | Git | any | Submodules, version control | [git-scm.com](https://git-scm.com) |
 | Rust | stable | Solana toolchain (Trident fuzzer) | [rustup.rs](https://rustup.rs) — Solana only |
+| Codex CLI | latest | Alternative AI runtime (optional) | [github.com/openai/codex](https://github.com/openai/codex) — optional, only if using Codex backend |
 
 ### Windows: Developer Mode (required)
 
@@ -156,6 +157,39 @@ Works on all platforms. On macOS with Homebrew: `brew install aptos`. Otherwise 
 | Sui CLI (via suiup) | Build, test | [docs.sui.io](https://docs.sui.io/guides/developer/getting-started/sui-install) | Yes |
 
 Works on all platforms. The setup wizard installs via `suiup` (the official Sui version manager). On Windows, a bundled Python installer script handles the download since bash is not always available.
+
+---
+
+## Soroban/Stellar
+
+| Tool | Purpose | Install | Required? |
+|------|---------|---------|-----------|
+| Stellar CLI | Build, deploy, test Soroban contracts | [stellar.org/docs](https://stellar.org/docs/build/smart-contracts/getting-started) | Yes |
+| Rust (stable) | Soroban contract compilation | [rustup.rs](https://rustup.rs) | Yes |
+
+Soroban contracts are Rust-based. The Stellar CLI (`stellar`) handles contract building and testing. Install Rust stable toolchain first, then install the Stellar CLI.
+
+### Soroban Platform Notes
+
+Works on all platforms. No special setup needed beyond Rust and the Stellar CLI.
+
+---
+
+## L1 Infrastructure (Go/Rust Node Clients)
+
+> These tools are needed only for L1 mode (`plamen l1`). Skip if you only audit smart contracts.
+
+| Tool | Purpose | Install | Required? |
+|------|---------|---------|-----------|
+| Go | 1.22+ | Build Go-based node clients | [go.dev/dl](https://go.dev/dl/) | Yes (Go clients) |
+| Rust | stable | Build Rust-based node clients | [rustup.rs](https://rustup.rs) | Yes (Rust clients) |
+| scip-go | SCIP indexer for Go | `go install github.com/sourcegraph/scip-go/cmd/scip-go@latest` | Recommended |
+| rust-analyzer | SCIP indexer for Rust | Via rustup or IDE | Recommended |
+| Opengrep | Cross-ecosystem static analysis | [github.com/opengrep/opengrep](https://github.com/opengrep/opengrep) | Recommended |
+| ast-grep | Structural code search | `cargo install ast-grep` or `npm i -g @ast-grep/cli` | Optional |
+| CodeQL CLI | Advanced static analysis | [github.com/github/codeql-cli-binaries](https://github.com/github/codeql-cli-binaries) | Optional |
+
+These tools power the Phase 0.5 "Bake" step that batch-indexes repositories before depth analysis. The pipeline works without them (falls back to grep-based analysis), but SCIP indexing significantly improves cross-reference accuracy.
 
 ---
 

@@ -12,7 +12,7 @@
 
 | Tool | Purpose | Install |
 |------|---------|---------|
-| **Claude Code CLI** | AI runtime | [docs.anthropic.com](https://docs.anthropic.com/en/docs/claude-code) |
+| **Claude Code CLI** (or Codex CLI) | AI runtime | [docs.anthropic.com](https://docs.anthropic.com/en/docs/claude-code) or [github.com/openai/codex](https://github.com/openai/codex) |
 | **Python 3.11-3.12** | MCP servers, wrapper | [python.org](https://python.org) |
 | **Node.js 18+** / **npx** | npm MCP servers | [nodejs.org](https://nodejs.org) |
 | **Git** | Submodules, deps | [git-scm.com](https://git-scm.com) |
@@ -61,6 +61,31 @@
 | Tool | Install |
 |------|---------|
 | Sui CLI | [docs.sui.io](https://docs.sui.io/guides/developer/getting-started/sui-install) |
+
+</details>
+
+<details>
+<summary><strong>Soroban/Stellar</strong></summary>
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| Rust (stable) | Contract compilation | [rustup.rs](https://rustup.rs) |
+| Stellar CLI | Build, test, deploy | [stellar.org/docs](https://stellar.org/docs/build/smart-contracts/getting-started) |
+
+</details>
+
+<details>
+<summary><strong>L1 Infrastructure (Go/Rust)</strong></summary>
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| Go 1.22+ | Build Go node clients | [go.dev/dl](https://go.dev/dl/) |
+| Rust (stable) | Build Rust node clients | [rustup.rs](https://rustup.rs) |
+| scip-go | SCIP batch indexing (Go) | `go install github.com/sourcegraph/scip-go/cmd/scip-go@latest` |
+| rust-analyzer | SCIP batch indexing (Rust) | Via rustup component or IDE |
+| Opengrep | Cross-ecosystem static analysis | [github.com/opengrep/opengrep](https://github.com/opengrep/opengrep) |
+
+> L1 tools are only needed for `plamen l1` mode. Skip if you only audit smart contracts.
 
 </details>
 

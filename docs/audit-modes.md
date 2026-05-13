@@ -33,3 +33,32 @@
 ## Proven-Only Mode
 
 Available in all modes via `--proven-only`. Caps findings with only `[CODE-TRACE]` evidence (no executed PoC or fuzzer counterexample) at Low severity. Useful for benchmark comparisons where only mechanically proven findings should drive severity.
+
+---
+
+## L1 Mode
+
+L1 infrastructure audits use the same Light/Core/Thorough tiers with these differences:
+
+| Dimension | L1 Difference |
+|-----------|---------------|
+| Languages | Go, Rust (instead of Solidity, Move, etc.) |
+| Depth agents | + depth-consensus-invariant, depth-network-surface; no depth-token-flow |
+| Phase 0.5 | Bake phase: scip-go / rust-analyzer SCIP batch indexing |
+| Phase 4c | Removed (no chain analysis for L1 point vulnerabilities) |
+| Severity matrix | L1-specific, aligned with Immunefi v2.3 |
+| Skills | 22+ L1 injectable skills (consensus, p2p, mempool, RPC, validator, etc.) |
+| Evidence tags | + [DIFF-PASS], [CONFORMANCE-PASS], [NON-DET-PASS], [FUZZ-PASS], [LSP-TRACE] |
+
+```bash
+plamen l1 core /path/to/node-client
+/plamen l1 thorough                    # inside Claude Code
+```
+
+See [l1-mode/design.md](l1-mode/design.md) for the full L1 architecture.
+
+---
+
+## Codex Backend
+
+All audit modes work with both Claude Code and OpenAI Codex CLI backends. The V2 driver handles tool translation and path rewriting automatically. See the main [README](../README.md) for Codex setup.

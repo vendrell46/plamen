@@ -24,7 +24,7 @@ These components are symlinked as **directories** — new and modified files are
 | Component | Symlink Type | Path |
 |-----------|-------------|------|
 | Skills (standard + injectable + niche) | Directory | `~/.claude/agents/skills/` → `~/.plamen/agents/skills/` |
-| Prompts (all 4 language trees) | Directory | `~/.claude/prompts/` → `~/.plamen/prompts/` |
+| Prompts (all 5 language trees) | Directory | `~/.claude/prompts/` → `~/.plamen/prompts/` |
 | MCP server source code | Directory | `~/.claude/custom-mcp/` → `~/.plamen/custom-mcp/` |
 | Hooks (watchdog scripts) | Directory | `~/.claude/hooks/` → `~/.plamen/hooks/` |
 
@@ -80,6 +80,18 @@ The `schema-sanitizer.js` proxy wraps `evm-chain-data` and `foundry-suite` — i
 | Toolchains (Foundry, Solana CLI, etc.) | System-level installs | `plamen setup` (interactive, checkbox) |
 | API keys | In `settings.json` and `mcp.json` | Manual edit only |
 | User's own Claude Code agents/rules | `~/.claude/` (non-Plamen files) | Never modified |
+
+---
+
+## Codex Backend Updates
+
+If you use the Codex CLI backend (`~/.codex/plamen/`), updating follows the same pattern:
+
+```bash
+cd ~/.plamen && git pull && plamen install --codex
+```
+
+The Codex config at `codex/config.toml` is user-local (like `settings.json`) and is not overwritten by install. Codex skill overrides and commands are symlinked and update automatically on `git pull`.
 
 ---
 

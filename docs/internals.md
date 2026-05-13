@@ -14,6 +14,7 @@ Always-available, triggered by pattern flags from recon. Examples: `ORACLE_ANALY
 | Solana | 20 |
 | Aptos | 22 (21 + core directives) |
 | Sui | 22 (21 + core directives) |
+| Soroban | 19 (13 cross-language + 6 Soroban-specific) |
 
 ### Injectable Skills (protocol-type-specific)
 
@@ -44,6 +45,38 @@ Spawn as independent agents (1 depth budget slot each, 8 total):
 | MULTI_STEP_OPERATION_SAFETY | `MULTI_STEP_OPS` flag (approve/delegate + on-behalf-of) |
 | CALLBACK_RECEIVER_SAFETY | `OUTCOME_CALLBACK` flag (EVM only) |
 | DIMENSIONAL_ANALYSIS | `MIXED_DECIMALS` flag (EVM only) |
+| STABLESWAP_COMPLIANCE | `STABLESWAP_FORK` flag (Curve/StableSwap fork) |
+
+### L1 Skills (infrastructure audits)
+
+Loaded only in L1 mode (`/plamen l1`). Injected into `depth-consensus-invariant` or `depth-network-surface`:
+
+| Skill | Trigger |
+|-------|---------|
+| CONSENSUS_SAFETY_INVARIANTS | `CONSENSUS` flag |
+| CONSENSUS_MATH_CORRECTNESS | `CONSENSUS` + difficulty/EMA/reward patterns |
+| FORK_CHOICE_AUDIT | `CONSENSUS` + fork_choice/ghost patterns |
+| P2P_DOS_AND_ECLIPSE | `P2P` flag |
+| MEMPOOL_ASYMMETRIC_DOS | `MEMPOOL` flag |
+| LIGHT_CLIENT_PROOF_VERIFICATION | `LIGHT_CLIENT` flag |
+| RPC_SURFACE_AUDIT | `RPC` flag |
+| BLS_AGGREGATION_AUDIT | `BLS` flag |
+| STATE_SYNC_PRUNING | `STATE_SYNC` flag |
+| EXECUTION_CLIENT_HARDENING | `EXECUTION` flag |
+| CROSS_ENVIRONMENT_SEMANTIC_DRIFT | `XENV` flag |
+| VALIDATOR_LIFECYCLE_AND_SLASHING | `VALIDATOR_LIFECYCLE` flag |
+| HARDFORK_ACTIVATION_AND_PROTOCOL_UPGRADE | `HARDFORK` flag |
+| GO_CONCURRENCY_SAFETY | Always (Go code) |
+| RUST_UNSAFE_AUDIT | Always (Rust code) |
+| DEPENDENCY_AUDIT_NODECLIENT | Always (L1) |
+| DATA_AVAILABILITY_ENFORCEMENT | `data_availability` flag |
+| PEER_SCORING_CORRECTNESS | `P2P` + scoring patterns |
+| GOSSIP_CACHE_INVARIANCE | `P2P` + cache patterns |
+| CONSENSUS_TX_IDENTITY_INVARIANTS | `CONSENSUS` + txid/nonce patterns |
+| CONFIG_CORRECTNESS | `L1_PATTERN` + config patterns |
+| WRITE_ERROR_DIVERGENCE | `STORAGE`/`DATABASE_TX` flag |
+
+Plus 2 new depth agents for L1 mode: **depth-consensus-invariant** and **depth-network-surface**.
 
 ---
 
@@ -99,3 +132,31 @@ Downgrade modifiers: on-chain-only exploit (-1), view-function-only (cap Medium)
 | `[CODE-TRACE]` | 0.6 | Manual trace, no execution (caps at CONTESTED) |
 | `[DOC]` | 0.4 | Documentation-based evidence |
 | `[MOCK]` | 0.2 | Mock-based (not production-representative) |
+
+### L1 Evidence Tags
+
+| Tag | Meaning |
+|-----|---------|
+| `[DIFF-PASS]` | Cross-client differential test passed |
+| `[CONFORMANCE-PASS]` | Spec conformance test passed |
+| `[NON-DET-PASS]` | Non-determinism detection test passed |
+| `[FUZZ-PASS]` | Fuzzer found counterexample |
+| `[LSP-TRACE]` | LSP-assisted code trace |
+
+---
+
+## V2 Driver
+
+The V2 pipeline (`plamen_driver.py`) executes phases as isolated subprocesses:
+
+| Component | Purpose |
+|-----------|---------|
+| `plamen_driver.py` | Phase scheduling, checkpointing, retry, gate checking |
+| `plamen_types.py` | Canonical definitions (evidence tags, severities, finding ID regex) |
+| `plamen_parsers.py` | LLM output parsing (report index, verification results) |
+| `plamen_validators.py` | Artifact quality gates (mechanical, not LLM-dependent) |
+| `plamen_prompt.py` | Phase prompt building with forward-ref sanitization |
+| `plamen_mechanical.py` | Deterministic report assembly, dedup, tier dispatch |
+| `plamen_display.py` | Rich terminal UI for driver progress |
+| `codex_adapter.py` | Codex CLI backend: tool translation, path rewriting |
+| `recon_prepass.py` | Pre-recon static analysis (Slither, Opengrep, SCIP) |

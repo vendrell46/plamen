@@ -344,6 +344,9 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
       You are the Depth Skill Execution Checklist Agent.
 
       For each depth agent, verify that it executed each step of its assigned skill.
+      Then verify injectable skills, niche agent skills, and Rule 17 artifacts.
+
+      ## PART A: Standard Depth Skills
 
       Depth Agent -> Skill Mapping:
         depth-token-flow -> ~/.claude/agents/skills/evm/token-flow-tracing/SKILL.md
@@ -365,8 +368,53 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
       Also check the MANDATORY DEPTH DIRECTIVE for each finding:
          | Finding ID | Depth Tags Count (>=2?) | Dual-Extreme Applied? | Gap? |
 
+      ## PART B: Injectable Skills (dynamic — loaded from template_recommendations.md)
+
+      Read {SCRATCHPAD}/template_recommendations.md. For each REQUIRED injectable skill:
+      1. Read the skill's SKILL.md file from the path in skill-index.md.
+      2. If the skill has a '## Mandatory Output Artifacts' section:
+         grep the target depth agent output for each listed Grep Pattern.
+      3. If no Mandatory Output Artifacts section: check for the skill's
+         Step Execution Checklist items — verify each REQUIRED step has
+         evidence (trace tag, table, or YES/NO grid) in the output.
+      4. Check which depth agent domain the skill was injected into
+         (from the skill's 'Inject Into' field). Read THAT agent's output.
+      5. Produce coverage table:
+         | Injectable Skill | Step | Artifact/Tag Expected | Found in Output? | Gap? |
+
+      ## PART C: Niche Agent Skills
+
+      For each niche agent output file ({SCRATCHPAD}/niche_*_findings.md):
+      1. Read the niche skill definition from ~/.claude/agents/skills/niche/{name}/SKILL.md.
+      2. Check each REQUIRED step for evidence in the niche agent output.
+      3. Produce coverage table:
+         | Niche Agent | Step | Evidence in Output? | Gap? |
+
+      ## PART D: Rule 17 (Symmetric Operations)
+
+      If {SCRATCHPAD}/symmetric_pairs.md exists and lists >= 1 pair:
+      1. For each depth agent output, check if any listed symmetric pair
+         falls within the agent's analyzed scope.
+      2. If yes: verify a field-by-field comparison table was produced
+         (per Rule R17 in generic-security-rules.md: 'produce a field-by-field
+         comparison table. Missing fields in the negative branch that have
+         dependent consumers → FINDING').
+      3. Produce coverage table:
+         | Symmetric Pair | Depth Agent | Comparison Table Present? | Gap? |
+
+      ## Gap Classification
+
+      For each GAP found across Parts A-D, classify:
+      - ARTIFACT_MISSING: The skill step's mandatory table/grid/tag is absent
+      - PARTIAL_COVERAGE: The topic was discussed but structured artifact not produced
+      - STEP_SKIPPED: No evidence the step was executed at all
+
+      For ARTIFACT_MISSING and STEP_SKIPPED gaps, generate a focused re-prompt:
+        'Execute {skill} Step {N}. Produce the required {artifact type}.
+        Analyze these specific targets: {relevant entities from attack_surface.md}.'
+
       Write to {SCRATCHPAD}/skill_execution_gaps.md
-      Return: 'DONE: {N} skill step gaps, {M} depth directive gaps across {K} agents'
+      Return: 'DONE: {N} standard skill gaps, {P} injectable skill gaps, {Q} niche gaps, {R} Rule 17 gaps, {M} depth directive gaps across {K} agents'
     ")
     // Await both perturbation and checklist agents
     await perturbation_agent, checklist_agent

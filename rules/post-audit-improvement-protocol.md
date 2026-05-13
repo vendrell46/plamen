@@ -11,8 +11,8 @@
 
 ### Current state
 - **125 files**, **31,278 lines** across agents/, rules/, prompts/, skills/
-- **78 skill files** across 4 language trees + 1 injectable
-- **~80 scanner checks** across 4 trees (19-21 per tree)
+- **97 skill files** across 5 language trees + 1 injectable
+- **~100 scanner checks** across 5 trees (19-21 per tree)
 - **Every improvement is additive**: each version adds files, rules, and lines without removing old ones
 - **Cross-tree duplication**: Each fix must be applied to 4-9 files (EVM, Solana, Aptos, Sui)
 

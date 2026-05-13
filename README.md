@@ -179,6 +179,27 @@ See [docs/audit-modes.md](docs/audit-modes.md) for the full comparison.
 
 ---
 
+## L1 Infrastructure Audits
+
+Plamen also audits **L1 node clients and blockchain infrastructure** — consensus engines, p2p networking, mempool logic, RPC surfaces, and validator lifecycle code in Go and Rust.
+
+```bash
+plamen l1 core /path/to/node-client
+```
+
+Or inside Claude Code: `/plamen l1 core`
+
+L1 mode adds:
+- **22+ injectable skills** covering consensus safety, fork choice, p2p DoS/eclipse, mempool asymmetric DoS, BLS aggregation, light client proofs, state sync/pruning, execution client hardening, validator lifecycle, and more
+- **2 new depth agents**: `depth-consensus-invariant` and `depth-network-surface`
+- **Phase 0.5 "Bake"**: Batch-indexes repos with scip-go / rust-analyzer SCIP before depth agents run
+- **L1-specific severity matrix** aligned with Immunefi v2.3 classification
+- **Go and Rust** language support with concurrency safety and unsafe-block auditing
+
+See [docs/l1-mode/design.md](docs/l1-mode/design.md) for the full L1 architecture.
+
+---
+
 ## How to Run
 
 **Terminal wrapper** (recommended — includes setup, cost estimation):
@@ -197,7 +218,47 @@ plamen setup                                        # install tools only
 > /plamen thorough docs: whitepaper.pdf scope: scope.txt
 ```
 
+**Inside Codex CLI**:
+
+```
+> $plamen core
+> $plamen l1 thorough /path/to/node-client
+```
+
 See [docs/usage.md](docs/usage.md) for PATH setup and all CLI options.
+
+---
+
+## Resumable Pipeline (V2)
+
+The V2 pipeline (`plamen-wizard`) runs a Python driver that executes one `claude -p` subprocess per phase. If usage runs out or the process crashes, re-run the same command — it auto-resumes from the last successful checkpoint.
+
+```bash
+# Launch via wizard (interactive)
+plamen                              # terminal wrapper starts wizard
+/plamen-wizard                      # inside Claude Code
+
+# Resume a crashed/interrupted audit
+python ~/.plamen/scripts/plamen_driver.py /path/to/project/.scratchpad/config.json
+```
+
+The driver handles: phase scheduling, artifact gating, rate-limit pauses, retry-with-degradation, and subprocess isolation. Claude handles: agent orchestration, finding analysis, PoC execution, and report generation.
+
+---
+
+## Codex CLI Backend
+
+Plamen supports [OpenAI Codex CLI](https://github.com/openai/codex) as an alternative backend. The V2 driver translates tool calls, rewrites paths (`~/.claude/` → `~/.codex/plamen/`), and adapts sandbox constraints.
+
+```bash
+# Install Codex backend (after standard install)
+plamen install --codex
+
+# Run via Codex
+$plamen core /path/to/project       # inside Codex CLI
+```
+
+Codex configuration lives in `~/.codex/plamen/` (symlinked from `~/.plamen/codex/`). See `codex/AGENTS.md` for Codex-specific orchestrator config.
 
 ---
 
@@ -209,6 +270,7 @@ See [docs/usage.md](docs/usage.md) for PATH setup and all CLI options.
 | **Solana/Anchor** | Anchor, cargo-build-sbf | Fender | Trident, proptest |
 | **Aptos Move** | aptos CLI | Move Prover | Parameterized tests |
 | **Sui Move** | sui CLI | -- | Parameterized tests |
+| **Soroban/Stellar** | Stellar CLI | -- | proptest, cargo-fuzz |
 
 Language detection is automatic based on config files.
 
@@ -227,6 +289,8 @@ Language detection is automatic based on config files.
 | Usage & CLI options | [docs/usage.md](docs/usage.md) |
 | Skills, rules & internals | [docs/internals.md](docs/internals.md) |
 | Repository structure | [docs/repository-structure.md](docs/repository-structure.md) |
+| L1 mode design | [docs/l1-mode/design.md](docs/l1-mode/design.md) |
+| L1 severity matrix | [docs/l1-mode/severity-matrix.md](docs/l1-mode/severity-matrix.md) |
 | Automated setup (Claude) | [SETUP.md](SETUP.md) |
 
 ---

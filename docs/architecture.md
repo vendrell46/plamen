@@ -136,3 +136,56 @@ Skeptic (sonnet) with INVERSION MANDATE, then Judge (haiku) resolves disagreemen
 ### Phase 6: Report Generation (5 agents)
 
 Index Agent (haiku) -> 3 Tier Writers (opus/sonnet) -> Assembler (haiku/sonnet) -> `AUDIT_REPORT.md`.
+
+---
+
+## V2 Driver Architecture
+
+The V2 pipeline (`/plamen-wizard`) wraps the same phase logic in a Python outer loop:
+
+```
+plamen_driver.py
+  ├── Reads config.json (mode, scope, backend)
+  ├── For each phase:
+  │     ├── Builds phase-specific prompt (strips forward refs)
+  │     ├── Launches `claude -p` (or `codex exec`) subprocess
+  │     ├── Waits for completion, checks artifact gates
+  │     ├── Writes checkpoint to pipeline_checkpoint.md
+  │     └── On failure: retry with hint → degrade → halt
+  └── Assembles AUDIT_REPORT.md (Python-native)
+```
+
+Key properties:
+- **Resumable**: Re-run the driver command to resume from last checkpoint
+- **Phase-isolated**: Each subprocess sees only its own prompt section
+- **Backend-agnostic**: Supports Claude Code (`claude -p`) and Codex CLI (`codex exec`)
+- **Deterministic gating**: Artifact existence checked mechanically, not by LLM
+
+---
+
+## L1 Pipeline Differences
+
+When running in L1 mode (`/plamen l1`), the pipeline adjusts:
+
+| SC Pipeline | L1 Pipeline | Reason |
+|-------------|-------------|--------|
+| Phase 4c: Chain Analysis | **Removed** | L1 bugs are point vulnerabilities; enabler enumeration doesn't apply |
+| depth-token-flow | **Not loaded** | No in-scope DeFi token flow in node clients |
+| -- | **Phase 0.5: Bake** | Batch-indexes repo with scip-go / rust-analyzer SCIP before depth |
+| -- | **depth-consensus-invariant** | Consensus safety/liveness, non-determinism, Byzantine scenarios |
+| -- | **depth-network-surface** | p2p/RPC/mempool attack surfaces, DoS vectors, eclipse checks |
+| SC severity matrix | **L1 severity matrix** | Aligned with Immunefi v2.3, stricter for Critical impact |
+| Evidence: [POC-PASS] etc. | + [DIFF-PASS], [CONFORMANCE-PASS], [NON-DET-PASS], [FUZZ-PASS], [LSP-TRACE] | L1-specific verification methods |
+
+See [l1-mode/design.md](l1-mode/design.md) for the complete L1 architecture.
+
+---
+
+## Codex Backend
+
+The V2 driver supports OpenAI Codex CLI as an alternative backend:
+
+- Prompts are rewritten: `~/.claude/` → `~/.codex/plamen/`
+- Tool calls are translated to Codex equivalents
+- Sandbox constraints are adapted
+- Codex config lives at `~/.codex/plamen/` (symlinked from `~/.plamen/codex/`)

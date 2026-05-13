@@ -7,10 +7,12 @@ Thank you for your interest in contributing to Plamen! This guide will help you 
 Plamen is a multi-agent security auditing pipeline built on Claude Code. It consists of:
 
 - **Orchestration rules** (`rules/`) - Phase definitions, scoring models, report templates
-- **Language prompts** (`prompts/{evm,solana,aptos,sui}/`) - Per-chain agent prompts and templates
+- **Language prompts** (`prompts/{evm,solana,aptos,sui,soroban}/`) - Per-chain agent prompts and templates
 - **Skills** (`agents/skills/`) - Methodology files that agents read at audit time
 - **Agent definitions** (`agents/depth-*.md`) - Depth agent role definitions
 - **MCP servers** (`custom-mcp/`) - Tool servers (RAG database, static analyzers)
+- **V2 driver scripts** (`scripts/`) - Python phase runner, parsers, validators, types
+- **L1 skills** (`agents/skills/injectable/l1/`) - L1 infrastructure audit methodology
 - **CLI wrapper** (`plamen.py`) - Terminal UI that launches audits
 
 ## Ways to Contribute
@@ -60,6 +62,10 @@ The unified-vuln-db MCP server (`custom-mcp/unified-vuln-db/`) powers RAG search
 - Better search/ranking algorithms
 - Performance improvements
 
+### 6. L1 Skills
+
+L1 infrastructure skills live in `agents/skills/injectable/l1/`. They cover blockchain node-client concerns: consensus safety, p2p networking, mempool analysis, RPC surfaces, validator lifecycle, state sync, and execution engines. L1 skills follow the same quality bar as SC skills but target Go and Rust codebases.
+
 ## Development Setup
 
 ### Prerequisites
@@ -87,6 +93,9 @@ pip install -e .
 # Run the CLI
 plamen.bat  # Windows
 ./plamen.sh # Linux/macOS
+
+# Codex backend (optional)
+plamen install --codex
 ```
 
 > **After `git pull`**: Always run `plamen install` to refresh `CLAUDE.md`, `settings.json`, and `mcp.json` — these are injected/merged copies, not symlinks, and go stale without re-install. See [docs/updating.md](docs/updating.md).

@@ -39,6 +39,8 @@ You do **not** need all chain tools. Install only the ones for your target:
 | **Solana / Anchor** | Solana CLI + Anchor | `plamen setup` → select Solana |
 | **Aptos Move** | Aptos CLI | `plamen setup` → select Move |
 | **Sui Move** | Sui CLI | `plamen setup` → select Move |
+| **Soroban / Stellar** | Stellar CLI + Rust | `plamen setup` → select Soroban |
+| **L1 / Node Client** | Go or Rust + scip-go/rust-analyzer | `plamen setup` → select L1 |
 
 > **Slither** (EVM static analysis) and **Medusa** (EVM stateful fuzzing) are recommended but optional. The pipeline works without them — it just has less static analysis coverage.
 
@@ -92,6 +94,14 @@ plamen core /path/to/your/project
 /plamen
 ```
 
+### Option D: Inside Codex CLI
+
+```
+$plamen core /path/to/project
+```
+
+Requires prior Codex setup: `plamen install --codex`.
+
 ## What mode should I pick?
 
 | Mode | When to use | Plan needed | Time |
@@ -101,6 +111,8 @@ plamen core /path/to/your/project
 | **Thorough** | High-value audit, complex DeFi, want fuzzing | Max | ~1-3 hours |
 
 Start with **Light** if you're on a Pro plan or just trying it out. Use **Core** for real audits.
+
+> **L1 mode**: For node client / infrastructure audits, use `plamen l1 [light|core|thorough]`. Same mode tiers apply.
 
 ## Verify everything works
 
@@ -115,6 +127,7 @@ Run `plamen setup` at any time to see your toolchain status:
   │  EVM      ✓forge ✓slither ○medusa             2/3 │
   │  Solana   ○solana ○anchor ○trident             0/3 │
   │  Move     ○aptos ○sui                          0/2 │
+  │  Soroban  ○stellar                             0/1 │
   ├────────────────────────────────────────────────────┤
   │  RAG DB   vulnerability knowledge base   not built │
   ╰────────────────────────────────────────────────────╯

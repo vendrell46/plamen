@@ -5,6 +5,37 @@ All notable changes to Plamen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-05-13
+
+### Added
+- **V2 Resumable Pipeline**: Python driver (`plamen_driver.py`) runs one `claude -p` subprocess per phase with automatic checkpointing. Resumes from last successful phase on crash or usage exhaustion. Launched via `/plamen-wizard` or `plamen_driver.py`.
+- **L1 Infrastructure Audit Mode**: `/plamen l1 [light|core|thorough]` for auditing blockchain node clients (consensus engines, p2p networking, mempool, RPC, validator lifecycle) in Go and Rust. 22+ injectable L1 skills, 2 new depth agents (`depth-consensus-invariant`, `depth-network-surface`), L1-specific severity matrix aligned with Immunefi v2.3, Phase 0.5 "Bake" (scip-go / rust-analyzer SCIP batch indexing), Opengrep cross-ecosystem static analysis.
+- **Soroban/Stellar Chain Support**: 19 skills (13 cross-language + 6 Soroban-specific: auth_validation, storage_lifecycle, overflow_safety, contract_upgradeability, sep41_token_safety, custom_type_safety). Full pipeline coverage: recon, breadth, depth, verification, report.
+- **OpenAI Codex CLI Backend**: V2 driver supports `codex exec` as alternative to `claude -p`. Tool translation, sandbox adaptation, path rewriting (`~/.claude/` → `~/.codex/plamen/`), model mapping. Codex config at `~/.codex/plamen/`.
+- **Semantic Dedup Agent (Phase 4e)**: Pre-chain dedup pass with location-overlap, source-ID subset, PERT lineage, and same-fix-pattern merging signals.
+- **PoC Execution Classifier**: Mechanical Python gates for coverage/integrity/demotion plus LLM Assertion Retry Protocol with harm-identity enforcement.
+- **Report Assembly**: Deterministic Python-native report assembler replaces LLM-based concatenation (49ms vs 1+ hour on large reports).
+- **Subprocess Isolation**: Plugin/hook/MCP isolation via `--settings` overlay prevents cold-start hangs from user plugins.
+- **Phase Isolation**: Each V2 subprocess receives ONLY its own prompt section with forward-reference sanitization.
+- **Pipeline Watchdog Hooks**: Claude Code Stop + PostToolUse hooks enforce artifact existence at phase transitions with two-strike stall model.
+- **Confidence Scoring Model**: Scoring model upgraded haiku → sonnet for per-finding differentiation on large audits.
+- **STABLESWAP_COMPLIANCE Niche Agent**: Curve/StableSwap fork compliance (Newton-Raphson convergence, A parameter encoding, reserve decimals).
+- **Graph Artifact Pre-Computation**: Recon produces caller_map, callee_map, state_write_map, function_summary across all 5 SC languages.
+
+### Changed
+- **5 Smart Contract Chains**: EVM/Solidity, Solana/Anchor, Aptos Move, Sui Move, Soroban/Stellar (was 4)
+- **Cross-platform path abstraction**: `plamen_home()` replaces all hardcoded `~/.claude` Python paths. Supports PLAMEN_HOME env, script-relative, and ~/.claude fallback.
+- **Version normalized to v2.0.0**: All internal version references unified (was mixed v1.1.8 / v9.9.x / v2.2.0 A.x dev tags)
+- **Light mode added**: 3 audit modes (Light/Core/Thorough) for Pro plan users (was 2: Core/Thorough)
+
+### Fixed
+- 200+ driver fixes across v2.0.0-v2.8.7 development cycle (see MEMORY.md pipeline entries for per-version details)
+- Subprocess stdin pipe deadlock on all platforms
+- MCP cold-start hang from plugin/hook interference
+- Report assembly truncation on large reports (>25 findings)
+- Gate-vs-gate collision between step-trace and coverage-fill agents
+- False recon retry from determiner articles in placeholder detection
+
 ## [1.1.8] - 2026-04-08
 
 ### Added

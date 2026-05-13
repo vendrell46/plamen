@@ -2,7 +2,7 @@
 
 > **Just installed?** See [getting-started.md](getting-started.md) first — what's required, what's optional, and how to run your first audit.
 
-## Two Ways to Run
+## Three Ways to Run
 
 ### Option A: Terminal Wrapper (recommended)
 
@@ -17,6 +17,8 @@ Interactive UI with dependency checking, tool installation, cost estimation, and
 ```bash
 plamen core /path/to/project --docs whitepaper.pdf
 plamen thorough /path/to/project --scope scope.txt --network ethereum --proven-only
+plamen l1 core /path/to/node-client     # L1 infrastructure audit
+plamen l1 thorough /path/to/geth         # L1 thorough mode
 plamen setup                        # install chain toolchains
 plamen rag                          # build/rebuild RAG database
 plamen uninstall                    # remove Plamen from ~/.claude
@@ -50,15 +52,38 @@ Or run directly: `python3 ~/.plamen/plamen.py` (macOS/Linux) or `python ~/.plame
 > /plamen compare report: audit.md ground_truth: reference.md
 ```
 
+### Option C: Inside Codex CLI
+
+```
+> $plamen core /path/to/project
+> $plamen l1 thorough /path/to/node-client
+```
+
+Codex backend requires prior setup: `plamen install --codex`. The V2 driver rewrites paths and translates tool calls automatically.
+
+### Option D: V2 Resumable Pipeline
+
+```bash
+# Interactive wizard (Claude Code)
+/plamen-wizard
+
+# Direct driver launch
+python ~/.plamen/scripts/plamen_driver.py /path/to/project/.scratchpad/config.json
+
+# Fresh restart (discard previous progress)
+python ~/.plamen/scripts/plamen_driver.py --fresh /path/to/project/.scratchpad/config.json
+```
+
+The V2 driver runs each phase as a separate `claude -p` subprocess with automatic checkpointing. If the process crashes or hits rate limits, re-run the same command to resume from the last successful phase.
+
 ### When to Use Which
 
-| | Terminal Wrapper | Claude Code |
-|---|---|---|
-| **First time** | Use this -- Setup installs toolchains, `plamen rag` builds RAG separately | Need tools already installed |
-| **Cost estimate** | Shows token/cost estimate before launch | No estimate |
-| **Dependency check** | Full toolchain probe with install option | Basic probe |
-| **Daily use** | `plamen core .` | `/plamen core .` |
-| **Already in Claude** | Opens new session | Uses current session |
+| | Terminal Wrapper | Claude Code | Codex CLI | V2 Driver |
+|---|---|---|---|---|
+| **First time** | Use this | Need tools installed | Need Codex + tools | Need tools installed |
+| **Cost estimate** | Shows estimate | No estimate | No estimate | No estimate |
+| **Resume on crash** | No | No | No | **Yes** |
+| **Daily use** | `plamen core .` | `/plamen core .` | `$plamen core .` | Auto via wizard |
 
 ## Cost Estimation
 
