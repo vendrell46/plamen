@@ -46,7 +46,7 @@ For new Codex launches, `config.json` must set `"cli_backend": "codex"`.
 
 ## Phase Sequence
 
-Follow the phase graph in `~/.codex/plamen/hooks/phase_manifest.json`:
+Follow the phase graph defined in the V2 driver's `plamen_types.py`:
 
 ```
 Recon (1) -> Breadth (2) -> Inventory (3) -> [Re-scan (4)] -> [Per-contract (5)]
@@ -55,7 +55,7 @@ Recon (1) -> Breadth (2) -> Inventory (3) -> [Re-scan (4)] -> [Per-contract (5)]
 ```
 
 Phases in brackets are mode-dependent. Each phase has required artifacts that
-MUST exist before proceeding to the next phase (enforced by phase_gate.py).
+MUST exist before proceeding to the next phase (enforced by the V2 driver's artifact gates).
 
 ## File References
 

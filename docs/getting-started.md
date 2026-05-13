@@ -10,10 +10,9 @@
 
 | Component | What it is | Status after install |
 |-----------|-----------|---------------------|
-| **Symlinks** | Links Plamen's agents, rules, commands, and hooks into `~/.claude/` (Claude Code) or `~/.codex/plamen/` (Codex CLI) | Done |
-| **Config** | Merged permissions, env vars, MCP servers, and hook triggers into `settings.json` (Claude Code) or `codex/config.toml` (Codex CLI) | Done |
+| **Symlinks** | Links Plamen's agents, rules, commands, and prompts into `~/.claude/` (Claude Code) or `~/.codex/plamen/` (Codex CLI) | Done |
+| **Config** | Merged permissions, env vars, and MCP servers into `settings.json` (Claude Code) or `codex/config.toml` (Codex CLI) | Done |
 | **Orchestrator rules** | Injected `CLAUDE.md` (Claude Code) or `codex/AGENTS.md` (Codex CLI) — the orchestrator's top-level instructions | Done |
-| **Watchdog** | Pipeline enforcement hooks that prevent the orchestrator from skipping steps during audits | Done (runs automatically, zero overhead outside audits) |
 | **Core Python deps** | `rich`, `InquirerPy` (wrapper UI) | Done |
 | **MCP server deps** | slither-mcp, solana-fender, farofino-mcp | Done |
 | **Chain toolchains** | Foundry, Solana CLI, Anchor, Aptos, Sui, etc. | Only if you selected them |
@@ -93,15 +92,16 @@ plamen core /path/to/your/project
 
 **Claude Code:**
 ```
-/plamen
+/plamen-wizard          # Smart contract audit
+/plamen-l1-wizard       # L1 infrastructure audit
 ```
 
-**Codex CLI:**
+**Codex CLI** (no slash commands — uses terminal wrapper):
 ```
 $plamen core /path/to/project
 ```
 
-Both invoke the same V2 driver and pipeline. The backend difference is transparent — agent prompts, depth templates, and verification logic are identical.
+All paths invoke the same V2 deterministic driver. The backend difference is transparent — agent prompts, depth templates, and verification logic are identical.
 
 ## What mode should I pick?
 

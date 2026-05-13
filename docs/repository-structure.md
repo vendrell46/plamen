@@ -65,9 +65,6 @@
 │   ├── recon_prepass.py               # Pre-recon static analysis
 │   └── write_helper.py               # File write utilities
 │
-├── hooks/                             # Pipeline watchdog hooks
-│   └── phase_gate.py                  # Phase transition enforcement
-│
 ├── codex/                             # Codex CLI backend config
 │   ├── AGENTS.md                      # Codex orchestrator config
 │   ├── config.toml                    # Codex model/MCP settings

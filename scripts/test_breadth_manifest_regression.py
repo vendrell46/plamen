@@ -234,35 +234,3 @@ def test_breadth_rescan_overreach_is_quarantined_not_blocking(tmp_path: Path):
     assert (sp / "_overflow" / "breadth" / "analysis_rescan_1.md").exists()
 
 
-def test_watchdog_breadth_glob_excludes_rescan_family(tmp_path: Path):
-    hook_path = Path(__file__).resolve().parents[1] / "hooks" / "phase_gate.py"
-    spec = importlib.util.spec_from_file_location("phase_gate_under_test", hook_path)
-    phase_gate = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(phase_gate)
-
-    sp = tmp_path
-    (sp / "analysis_rescan_1.md").write_text("x" * 300, encoding="utf-8")
-    manifest = {
-        "phases": {
-            "breadth": {
-                "order": 1,
-                "required_artifacts": ["analysis_*.md"],
-                "min_required_glob_matches": 1,
-                "min_file_bytes": 100,
-            },
-            "rescan": {
-                "order": 2,
-                "required_artifacts": ["analysis_rescan_*.md"],
-                "min_required_glob_matches": 1,
-                "min_file_bytes": 100,
-            },
-        }
-    }
-
-    current, _ = phase_gate.detect_current_phase(str(sp), manifest, "thorough")
-    assert current == "breadth"
-
-    (sp / "analysis_core_state.md").write_text("x" * 300, encoding="utf-8")
-    current, _ = phase_gate.detect_current_phase(str(sp), manifest, "thorough")
-    assert current == "complete"

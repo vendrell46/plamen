@@ -77,7 +77,6 @@ The installer (`plamen install`):
 - Creates symlinks from `~/.plamen` into `~/.claude/` so Claude Code discovers Plamen's agents, rules, prompts, and commands
 - Merges Plamen's permissions into your existing `~/.claude/settings.json` (additive only — won't remove your entries)
 - Merges MCP server definitions into `~/.claude/mcp.json` (won't overwrite your existing servers)
-- Symlinks watchdog hooks into `~/.claude/hooks/` and merges hook triggers into `settings.json`
 - Injects Plamen instructions into `~/.claude/CLAUDE.md` between `<!-- PLAMEN:START/END -->` markers (preserves your content)
 - Installs Python dependencies (RAG database is built separately via `plamen rag`)
 
@@ -85,7 +84,6 @@ For Codex CLI support, also run `plamen install --codex`. This sets up `~/.codex
 - Codex orchestrator config in `codex/AGENTS.md` (equivalent of `CLAUDE.md`)
 - MCP/tool config in `codex/config.toml` (equivalent of `settings.json` + `mcp.json`)
 - Codex-specific commands in `codex/commands/`
-- Watchdog hooks adapted for Codex's hook system
 
 Your existing Claude Code and Codex CLI configuration is preserved.
 
@@ -100,7 +98,7 @@ The Plamen repo stays at `~/.plamen`. The installer creates symlinks (shortcuts)
 When the AI runtime reads `~/.claude/agents/depth-edge-case.md` (or `~/.codex/plamen/agents/depth-edge-case.md`), the OS transparently reads `~/.plamen/agents/depth-edge-case.md`. This means:
 - `git pull` in `~/.plamen` updates symlinked files (agents, rules, skills, prompts) automatically for both backends
 - **You still need `plamen install` (and `plamen install --codex`) after pull** — `CLAUDE.md`/`AGENTS.md`, `settings.json`/`config.toml`, and `mcp.json` are injected/merged copies, not symlinks. Without re-install, the orchestrator follows stale rules. See [docs/updating.md](docs/updating.md).
-- Your own files in `~/.claude/` or `~/.codex/` (custom agents, commands, hooks) are untouched
+- Your own files in `~/.claude/` or `~/.codex/` (custom agents, commands) are untouched
 - Deleting `~/.plamen` would break the symlinks for both backends — don't delete it while Plamen is installed
 
 | Platform | How links are created | Requirements |
@@ -283,10 +281,9 @@ Codex configuration lives in `~/.codex/plamen/` (symlinked from `~/.plamen/codex
 | Claude Code | Codex CLI | Purpose |
 |-------------|-----------|---------|
 | `~/.claude/CLAUDE.md` | `~/.codex/plamen/AGENTS.md` | Orchestrator rules |
-| `~/.claude/settings.json` | `~/.codex/plamen/config.toml` | Permissions, env vars, hooks |
+| `~/.claude/settings.json` | `~/.codex/plamen/config.toml` | Permissions, env vars |
 | `~/.claude/mcp.json` | `~/.codex/plamen/config.toml` `[mcp]` | MCP server definitions |
 | `~/.claude/commands/` | `~/.codex/plamen/commands/` | Slash commands |
-| `~/.claude/hooks/` | `~/.codex/plamen/hooks/` | Watchdog hooks |
 
 ---
 

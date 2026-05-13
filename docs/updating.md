@@ -28,7 +28,6 @@ These components are symlinked as **directories** — new and modified files are
 | Skills (standard + injectable + niche) | Directory | `~/.claude/agents/skills/` → `~/.plamen/agents/skills/` | `~/.codex/plamen/agents/skills/` → same |
 | Prompts (all 5 language trees) | Directory | `~/.claude/prompts/` → `~/.plamen/prompts/` | `~/.codex/plamen/prompts/` → same |
 | MCP server source code | Directory | `~/.claude/custom-mcp/` → `~/.plamen/custom-mcp/` | N/A (Codex uses tool translation, not MCP) |
-| Hooks (watchdog scripts) | Directory | `~/.claude/hooks/` → `~/.plamen/hooks/` | N/A (Codex has no hook system) |
 
 These are symlinked as **individual files** — existing files update, but no new files were added since v1.0.0:
 
@@ -50,7 +49,7 @@ These are **not symlinked** — they are merged/injected at install time:
 |-----------|-------------------|-------------------|
 | **CLAUDE.md** (Claude Code) | User may have their own content | Strips old `<!-- PLAMEN:START -->...<!-- PLAMEN:END -->` section, re-injects current version. User content outside markers is preserved. |
 | **AGENTS.md** (Codex, `--codex`) | User may have their own content | Same marker-based injection as CLAUDE.md. Codex equivalent of the orchestrator config. |
-| **settings.json** (Claude Code) | User has their own API keys and permissions | Additive merge: adds new env vars, permissions, and hooks that don't exist. Never overwrites existing keys. |
+| **settings.json** (Claude Code) | User has their own API keys and permissions | Additive merge: adds new env vars and permissions that don't exist. Never overwrites existing keys. |
 | **config.toml** (Codex, `--codex`) | User has their own Codex settings | Additive merge: adds new model routing and sandbox entries. Never overwrites existing keys. |
 | **mcp.json** (Claude Code only) | User has their own MCP servers and API keys | Additive merge: adds new server entries that don't exist. Fixes wrong-platform paths (e.g., Windows `C:/` on macOS) in existing servers while preserving env vars and API keys. |
 | **MCP packages** (Claude Code legacy only) | Only if `~/.claude.json` has bare `npx -y @pkg` without version pins | Installs pinned npm packages locally, updates config to use schema sanitizer. Skipped for fresh installs. |
@@ -105,7 +104,6 @@ cd ~/.plamen && git pull && plamen install && plamen install --codex
 - `AGENTS.md` (not `CLAUDE.md`) receives the marker-based orchestrator injection
 - `config.toml` (not `settings.json`) receives additive model/sandbox merges
 - MCP servers are not configured (Codex uses tool translation instead of MCP)
-- Hooks are not installed (Codex has no hook system)
 - Symlinked directories (skills, prompts, agent definitions, rules) work identically
 
 ---
@@ -118,7 +116,7 @@ Running `plamen install` (or `plamen install --codex`) multiple times is safe. H
 |------|--------------|------------|-------------------|
 | Symlinks | Creates new links | Removes old links, recreates (same result) | Same (into `~/.codex/plamen/`) |
 | User file backup | Backs up to `.pre-plamen` | Skips if backup already exists | Same |
-| settings.json / config.toml | Merges Plamen entries (hooks, permissions, env) | Skips entries that already exist; fixes wrong-platform python command in hooks | Merges model routing and sandbox entries into `config.toml` |
+| settings.json / config.toml | Merges Plamen entries (permissions, env) | Skips entries that already exist | Merges model routing and sandbox entries into `config.toml` |
 | mcp.json | Merges Plamen servers | Skips existing servers, but fixes wrong-platform paths and backfills new env vars | N/A (Codex has no MCP) |
 | CLAUDE.md / AGENTS.md | Injects between markers | Strips old injection, re-injects current | Same (into `AGENTS.md`) |
 | Python deps | Installs packages | `pip` skips already-installed packages | Same |

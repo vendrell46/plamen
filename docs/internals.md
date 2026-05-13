@@ -49,7 +49,7 @@ Spawn as independent agents (1 depth budget slot each, 8 total):
 
 ### L1 Skills (infrastructure audits)
 
-Loaded only in L1 mode (`/plamen l1` in Claude Code, `$plamen l1` in Codex, or `plamen l1` from terminal). Injected into `depth-consensus-invariant` or `depth-network-surface`:
+Loaded only in L1 mode (`/plamen-l1-wizard` in Claude Code, or `plamen l1` from terminal). Injected into `depth-consensus-invariant` or `depth-network-surface`:
 
 | Skill | Trigger |
 |-------|---------|
@@ -145,9 +145,9 @@ Downgrade modifiers: on-chain-only exploit (-1), view-function-only (cap Medium)
 
 ---
 
-## V2 Driver
+## Driver
 
-The V2 pipeline (`plamen_driver.py`) executes phases as isolated subprocesses:
+The pipeline driver (`plamen_driver.py`) executes phases as isolated subprocesses. This is the only execution model -- all invocations (`/plamen-wizard`, `plamen` terminal, `plamen core`, etc.) launch this driver:
 
 | Component | Purpose |
 |-----------|---------|

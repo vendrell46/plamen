@@ -75,3 +75,15 @@ shell-snapshots/
 tasks/
 telemetry/
 todos/
+
+# ── Internal dev docs (not for public release) ────
+pipeline_audit_*/
+.scratchpad/
+.claude-l1-backup/
+.l1_backup_*/
+docs/cost-research.md
+docs/cross-file-consistency-audit.md
+docs/driver-verification-audit.md
+docs/opt-validation.md
+docs/v2-*.md
+docs/l1-mode/week1-progress.md

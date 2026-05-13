@@ -54,7 +54,7 @@
                                                AUDIT_REPORT.md
 ```
 
-The workflow is fully autonomous -- provide a smart contract project and optionally documentation. The orchestrator detects the language, loads the appropriate branch, and handles everything from pattern detection to PoC verification to final report assembly.
+The workflow is fully autonomous -- provide a smart contract project and optionally documentation. The V2 deterministic driver (`plamen_driver.py`) executes each phase as an isolated subprocess, detects the language, loads the appropriate prompt branch, and handles everything from pattern detection to PoC verification to final report assembly.
 
 ---
 
@@ -139,9 +139,9 @@ Index Agent (haiku) -> 3 Tier Writers (opus/sonnet) -> Assembler (haiku/sonnet) 
 
 ---
 
-## V2 Driver Architecture
+## Driver Architecture
 
-The V2 pipeline (`/plamen-wizard`) wraps the same phase logic in a Python outer loop:
+The pipeline is driven by `plamen_driver.py`, a Python outer loop that executes each phase as an isolated subprocess. Invoked via `/plamen-wizard` (Claude Code), `plamen` terminal wrapper (both backends), or directly:
 
 ```
 plamen_driver.py
@@ -165,7 +165,7 @@ Key properties:
 
 ## L1 Pipeline Differences
 
-When running in L1 mode (`/plamen l1` in Claude Code, `$plamen l1` in Codex, or `plamen l1` from the terminal), the pipeline adjusts:
+When running in L1 mode (`/plamen-l1-wizard` in Claude Code, or `plamen l1` from the terminal), the pipeline adjusts:
 
 | SC Pipeline | L1 Pipeline | Reason |
 |-------------|-------------|--------|
@@ -183,10 +183,10 @@ See [l1-mode/design.md](l1-mode/design.md) for the complete L1 architecture.
 
 ## Codex Backend
 
-The V2 driver supports OpenAI Codex CLI as an alternative backend:
+The driver supports OpenAI Codex CLI as an alternative backend:
 
 - Prompts are rewritten: `~/.claude/` paths become `~/.codex/plamen/` equivalents
 - Tool calls are translated to Codex equivalents (via `codex_adapter.py`)
 - Sandbox constraints are adapted for Codex's execution model
 - Codex config lives at `~/.codex/plamen/` (symlinked from `~/.plamen/codex/`): `AGENTS.md` (orchestrator) and `config.toml` (settings), replacing Claude Code's `CLAUDE.md`, `settings.json`, and `mcp.json`
-- Install: `plamen install --codex`. The V2 driver auto-detects the active backend via `plamen_home()`
+- Install: `plamen install --codex`. The driver auto-detects the active backend via `plamen_home()`

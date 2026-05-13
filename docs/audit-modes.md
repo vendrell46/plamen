@@ -51,10 +51,10 @@ L1 infrastructure audits use the same Light/Core/Thorough tiers with these diffe
 | Evidence tags | + [DIFF-PASS], [CONFORMANCE-PASS], [NON-DET-PASS], [FUZZ-PASS], [LSP-TRACE] |
 
 ```bash
-plamen l1 core /path/to/node-client    # terminal wrapper
-/plamen l1 thorough                    # inside Claude Code
-$plamen l1 thorough                    # inside Codex CLI
+plamen l1 core /path/to/node-client    # terminal wrapper (both backends)
 ```
+
+Inside Claude Code, use `/plamen-l1-wizard` for interactive L1 audit configuration.
 
 See [l1-mode/design.md](l1-mode/design.md) for the full L1 architecture.
 

@@ -139,7 +139,7 @@ python plamen.py install        # macOS / Linux
 python plamen.py install        # Windows
 ```
 
-This merges config files automatically (`settings.json`, `mcp.json`, `CLAUDE.md`, hooks), symlinks watchdog hooks into `~/.claude/hooks/`, and merges hook triggers into `settings.json`. No manual configuration needed.
+This merges config files automatically (`settings.json`, `mcp.json`, `CLAUDE.md`) and creates symlinks for agents, rules, prompts, skills, and commands into `~/.claude/`. No manual configuration needed.
 
 **Codex CLI:**
 
