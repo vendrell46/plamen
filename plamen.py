@@ -2476,6 +2476,36 @@ def run_doctor():
         else:
             fail(f"`{tool}` not on PATH")
 
+    # 2a. Windows: detect the Microsoft Store App Execution Alias stubs.
+    # `python.exe` and `python3.exe` ship as 0-byte stubs in
+    # `%LOCALAPPDATA%\Microsoft\WindowsApps\` that open the Store instead
+    # of running Python. They sit at the front of PATH on fresh Windows
+    # installs, so LLM-spawned shells (recon/depth agents, bake scripts)
+    # that invoke `python` or `python3` from the prompt keep popping the
+    # Store mid-audit. Plamen's own subprocess.run calls bypass this by
+    # using sys.executable, but we can't control what an LLM types into
+    # a Bash tool — best we can do is detect + warn.
+    if sys.platform == "win32":
+        store_stub_dir = os.path.normpath(os.path.expanduser(
+            "~/AppData/Local/Microsoft/WindowsApps"
+        ))
+        for stub_name in ("python.exe", "python3.exe"):
+            stub_path = os.path.join(store_stub_dir, stub_name)
+            try:
+                size = os.path.getsize(stub_path)
+            except OSError:
+                continue
+            # Real interpreters are megabytes; the Store aliases are
+            # 0 bytes (reparse-point stubs).
+            if size == 0:
+                warn(
+                    f"Windows Microsoft Store stub at {stub_path} "
+                    f"will open the Store every time `python`/`python3` "
+                    f"is invoked by an LLM agent. Disable via Settings "
+                    f"> Apps > Advanced app settings > App execution "
+                    f"aliases (turn OFF App Installer python/python3)."
+                )
+
     claude_bin = _find_bin("claude") or _find_bin("claude.cmd")
     codex_bin = _find_codex_bin()
     if claude_bin or codex_bin:
