@@ -1837,6 +1837,81 @@ def _run_symlink_install(w):
     w(f"\n  {_C_GREEN}Linked {len(installed)} items into {CLAUDE_HOME}{_RST}\n\n")
 
 
+def _ensure_python3_shim_windows(w):
+    """Windows: make `python3` resolve to the real interpreter.
+
+    The default Python installer creates `python.exe` but not
+    `python3.exe` (the latter is a Unix convention). Windows ships a
+    Microsoft Store App Execution Alias at
+    `%LOCALAPPDATA%\\Microsoft\\WindowsApps\\python3.exe` — a 0-byte
+    stub that opens the Store when invoked. Any LLM-spawned shell that
+    runs `python3 ...` (recon Bash invocations, the L1 bake script,
+    `python3 -m plamen_l1.scip_reader`, etc.) pops the Store mid-audit.
+
+    Plamen's own subprocess.run calls bypass this via `sys.executable`
+    in `_python_bin()`. The remaining surface is LLM-typed shell
+    commands, which we can't intercept.
+
+    Two-tier fix:
+      1. Best path — copy python.exe -> python3.exe in the SAME dir as
+         sys.executable. The Python install dir is already on PATH
+         (added by the installer) and comes before WindowsApps, so
+         `python3` resolves to the real interpreter regardless of which
+         shell / how PATH is ordered downstream.
+      2. Fallback — if the install dir is read-only (system-wide
+         install at `C:\\Program Files\\Python*`), drop a `python3.bat`
+         shim in PLAMEN_HOME. This requires PLAMEN_HOME to be on PATH
+         before WindowsApps; works for typical user installs that
+         followed the README PATH instructions, fails silently if not.
+
+    Idempotent — if python3.exe already exists next to python.exe (some
+    newer Python installs include it; users who ran this before),
+    no-op. On non-Windows platforms `python3` is real and this
+    function is a no-op.
+    """
+    if sys.platform != "win32":
+        return
+    py_exe = sys.executable
+    if not py_exe or not os.path.isfile(py_exe):
+        return
+    py_dir = os.path.dirname(py_exe)
+    py3_exe = os.path.join(py_dir, "python3.exe")
+    if os.path.isfile(py3_exe):
+        return  # already present — newer Python or prior plamen install
+
+    # Tier 1: copy python.exe -> python3.exe in the Python install dir.
+    try:
+        shutil.copy2(py_exe, py3_exe)
+        w(f"  {_C_GREEN}>{_RST} Created python3.exe shim at {py3_exe}\n")
+        w(f"    {_C_GRAY}prevents `python3` from opening the Microsoft Store{_RST}\n")
+        return
+    except (OSError, PermissionError) as e_copy:
+        pass  # fall through to tier 2
+
+    # Tier 2: PLAMEN_HOME/.python3.bat as a softer fallback. Works only
+    # if PLAMEN_HOME is on PATH ahead of WindowsApps. The README install
+    # instructions add PLAMEN_HOME to PATH, so this covers the standard
+    # case; users with non-standard PATH ordering see the doctor warning
+    # and can disable the App Execution Alias themselves.
+    shim_path = os.path.join(PLAMEN_HOME, "python3.bat")
+    try:
+        with open(shim_path, "w", encoding="ascii", newline="") as f:
+            f.write("@echo off\r\n")
+            f.write(f'"{py_exe}" %*\r\n')
+            f.write("exit /b %ERRORLEVEL%\r\n")
+        w(f"  {_C_ORANGE}!{_RST} Couldn't write python3.exe next to {py_exe}\n")
+        w(f"    {_C_GRAY}Reason: {e_copy}{_RST}\n")
+        w(f"    {_C_GRAY}Fallback shim: {shim_path}{_RST}\n")
+        w(f"    {_C_GRAY}Effective only if ~/.plamen is on PATH before WindowsApps.{_RST}\n")
+    except OSError as e_shim:
+        w(f"  {_C_RED}!{_RST} Could not create any python3 shim\n")
+        w(f"    {_C_GRAY}python.exe dir: {e_copy}{_RST}\n")
+        w(f"    {_C_GRAY}PLAMEN_HOME shim: {e_shim}{_RST}\n")
+        w(f"    {_C_GRAY}Workaround: Settings > Apps > Advanced app{_RST}\n")
+        w(f"    {_C_GRAY}settings > App execution aliases > turn OFF{_RST}\n")
+        w(f"    {_C_GRAY}App Installer python.exe + python3.exe.{_RST}\n")
+
+
 def _heal_dangling_hooks(w):
     """Strip dangling Plamen-owned hook entries from ~/.claude/settings.json.
 
@@ -2741,6 +2816,10 @@ def run_install():
     # every shell command — including a retry of `plamen install`. Strip those
     # entries BEFORE the new install touches anything.
     _heal_dangling_hooks(w)
+
+    # ── Windows-only: drop a `python3` shim so LLM-typed shell commands
+    # don't hit the Microsoft Store App Execution Alias.
+    _ensure_python3_shim_windows(w)
 
     # ── Symlink install (if repo is not directly in ~/.claude) ─
     has_claude = bool(shutil.which("claude") or shutil.which("claude.cmd"))
