@@ -474,9 +474,19 @@ def test_phase6_report_prompt_stays_below_context_warning_limit() -> None:
     claude_path = plamen_home() / "rules" / "phase6-report-prompts.md"
     codex_path = Path.home() / ".codex" / "plamen" / "rules" / "phase6-report-prompts.md"
     claude_text = claude_path.read_text(encoding="utf-8")
-    codex_text = codex_path.read_text(encoding="utf-8")
-
     assert len(claude_text) < 40_000
+
+    # Codex side is install-state-dependent (post-`plamen install --codex`).
+    # CI pytest runners don't run install, so the codex symlink target
+    # is absent. Skip the parity check there; the install-smoke job
+    # already verifies the codex adapter generates the file correctly.
+    if not codex_path.exists():
+        import pytest
+        pytest.skip(
+            f"{codex_path} missing — Codex side not installed on this "
+            "runner; install-smoke job verifies generation"
+        )
+    codex_text = codex_path.read_text(encoding="utf-8")
     assert len(codex_text) < 40_000
     assert claude_text == codex_text
 
@@ -878,12 +888,17 @@ def test_sc_report_index_repair_restores_verifier_severity_from_quarantine(tmp_p
         "|---------|------------|----------|-------|\n"
         "| 1 | H-1 | Medium | verifier-owned severity |\n",
     )
+    # NB: keep this fixture >= 100 bytes on POSIX. Python's Path.write_text
+    # uses universal-newline translation, so `\n` becomes `\r\n` on Windows;
+    # without the explanatory body line the file is 98 bytes on Linux/macOS
+    # and fails the `_verify_file_present_for_id(min_bytes=100)` gate.
     _write(
         sp / "verify_H-1.md",
         "# Verification H-1\n\n"
         "**Verdict**: CONFIRMED\n\n"
         "**Severity**: Medium\n\n"
-        "**Evidence Tag**: [CODE-TRACE]\n",
+        "**Evidence Tag**: [CODE-TRACE]\n\n"
+        "Verifier observed the described mechanism in the cited location.\n",
     )
     _write(
         q / "report_index.md.bad",

@@ -382,11 +382,18 @@ def test_star_import_runtime_equivalence():
     for mod_name in SUB_MODULES:
         # Execute `from module import *` in a subprocess and check
         # that every __all__ name is actually available
+        # NB: capture `dir()` into `_names` BEFORE the comprehension.
+        # Python 3.11 list comprehensions execute in an implicit function
+        # scope (PEP 709 inlining did not land until 3.12), so `dir()`
+        # inside the comprehension returns the comp's local namespace,
+        # not the module's. Without this capture every name would
+        # spuriously appear "missing" on py3.11.
         script = (
             f"import sys; sys.path.insert(0, r'{SCRIPTS_DIR}'); "
             f"from {mod_name} import *; "
             f"import {mod_name}; "
-            f"missing = [n for n in {mod_name}.__all__ if n not in dir()]; "
+            f"_names = set(dir()); "
+            f"missing = [n for n in {mod_name}.__all__ if n not in _names]; "
             f"print('MISSING:' + ','.join(missing) if missing else 'ALL_OK')"
         )
         result = subprocess.run(
@@ -727,16 +734,14 @@ def test_codex_top_level_route_uses_deterministic_driver():
     # v2.0.0 F6 fix: source dir was renamed `codex/` → `codex-adapter/`
     # so it doesn't shadow the Codex CLI binary when ~/.plamen is on PATH.
     # The INSTALL target (~/.codex/) is unchanged.
-    skill_paths = [
-        Path.home() / ".codex" / "skills" / "plamen" / "SKILL.md",
-        root / "codex-adapter" / "skills" / "plamen" / "SKILL.md",
-    ]
-    agent_paths = [
-        Path.home() / ".codex" / "AGENTS.md",
-        root / "codex-adapter" / "AGENTS.md",
-    ]
-    for path in skill_paths + agent_paths:
-        assert path.exists(), f"missing Codex route contract: {path}"
+    installed_skill = Path.home() / ".codex" / "skills" / "plamen" / "SKILL.md"
+    source_skill = root / "codex-adapter" / "skills" / "plamen" / "SKILL.md"
+    installed_agents_md = Path.home() / ".codex" / "AGENTS.md"
+    source_agents_md = root / "codex-adapter" / "AGENTS.md"
+
+    # SOURCE-side contracts always asserted (these live in the repo).
+    for path in (source_skill, source_agents_md):
+        assert path.exists(), f"missing Codex route contract source: {path}"
         text = path.read_text(encoding="utf-8", errors="replace")
         assert "plamen_driver.py" in text, f"{path} must launch the driver"
         assert '"cli_backend": "codex"' in text, f"{path} must pin Codex backend"
@@ -744,12 +749,30 @@ def test_codex_top_level_route_uses_deterministic_driver():
             f"{path} must forbid top-level manual orchestration"
         )
 
-    installed = skill_paths[0].read_text(encoding="utf-8", errors="replace")
-    source = skill_paths[1].read_text(encoding="utf-8", errors="replace")
+    # INSTALL-side parity check is install-state-dependent. CI pytest runners
+    # don't run `plamen install --codex`, so ~/.codex/skills/plamen/SKILL.md
+    # is absent. The install-smoke job verifies generation parity directly.
+    if not installed_skill.exists() or not installed_agents_md.exists():
+        import pytest
+        pytest.skip(
+            "Codex install not present on this runner — source-side "
+            "contracts verified; install-smoke job covers parity"
+        )
+
+    for path in (installed_skill, installed_agents_md):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        assert "plamen_driver.py" in text, f"{path} must launch the driver"
+        assert '"cli_backend": "codex"' in text, f"{path} must pin Codex backend"
+        assert "Do not manually orchestrate" in text, (
+            f"{path} must forbid top-level manual orchestration"
+        )
+
+    installed = installed_skill.read_text(encoding="utf-8", errors="replace")
+    source = source_skill.read_text(encoding="utf-8", errors="replace")
     assert installed == source, "installed Codex skill drifted from source"
 
-    installed_agents = agent_paths[0].read_text(encoding="utf-8", errors="replace")
-    source_agents = agent_paths[1].read_text(encoding="utf-8", errors="replace")
+    installed_agents = installed_agents_md.read_text(encoding="utf-8", errors="replace")
+    source_agents = source_agents_md.read_text(encoding="utf-8", errors="replace")
     assert installed_agents == source_agents, "installed Codex AGENTS.md drifted from source"
 
 

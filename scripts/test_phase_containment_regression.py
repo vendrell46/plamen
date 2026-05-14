@@ -5,6 +5,7 @@ Run: `python test_phase_containment_regression.py`
 
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import subprocess
@@ -994,11 +995,24 @@ print(json.dumps({"result": "x" * 700, "usage": {"input_tokens": 1, "output_toke
 """.lstrip(),
         encoding="utf-8",
     )
-    fake_cmd = tmp_path / "fake_claude.cmd"
-    fake_cmd.write_text(
-        f'@echo off\r\n"{sys.executable}" "{fake_py}" %*\r\n',
-        encoding="utf-8",
-    )
+    # On Windows we hand the driver a `.cmd` shim (D.CLAUDE_BIN is invoked
+    # without shell=True; cmd.exe is the only interpreter that runs `.cmd`).
+    # On POSIX we hand it an executable shell script — same indirection,
+    # platform-native interpreter. A `.cmd` on Linux/macOS would hit
+    # `PermissionError: [Errno 13]` because the kernel has no handler.
+    if os.name == "nt":
+        fake_cmd = tmp_path / "fake_claude.cmd"
+        fake_cmd.write_text(
+            f'@echo off\r\n"{sys.executable}" "{fake_py}" %*\r\n',
+            encoding="utf-8",
+        )
+    else:
+        fake_cmd = tmp_path / "fake_claude.sh"
+        fake_cmd.write_text(
+            f'#!/bin/sh\nexec "{sys.executable}" "{fake_py}" "$@"\n',
+            encoding="utf-8",
+        )
+        fake_cmd.chmod(0o755)
 
     phase = next(p for p in D.L1_PHASES if p.name == "inventory_prepare")
     config = _config(project, scratchpad)
