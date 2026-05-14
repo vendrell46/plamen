@@ -9811,7 +9811,8 @@ def _validate_sc_subsystem_coverage(
 def _validate_recon_coverage(scratchpad: Path, project_root: str,
                              language: str,
                              subsystem_scope: str | None = None,
-                             backend: str = "claude") -> list[str]:
+                             backend: str = "claude",
+                             scope_file: str | None = None) -> list[str]:
     """Post-recon: assert every substantial module is cited.
 
     The failure mode this catches (Heimdallr arxiv 2601.17833, named as a
@@ -9899,6 +9900,25 @@ def _validate_recon_coverage(scratchpad: Path, project_root: str,
 
     if not modules:
         return []
+
+    # When the wizard passed an explicit scope file, restrict the
+    # universe of "must-be-cited" files to those listed in it. A
+    # 200-contract repo with a 5-file scope list should not trip the
+    # gate for the 195 contracts the user already declared out-of-scope.
+    # `_path_in_scope_file` is permissive when `scope_names` is empty.
+    scope_names = _load_scope_file_paths(scope_file)
+    if scope_names:
+        filtered: dict[str, set[str]] = {}
+        for key, files in modules.items():
+            kept = {f for f in files if _path_in_scope_file(f, scope_names)}
+            if kept:
+                filtered[key] = kept
+        modules = filtered
+        if not modules:
+            # User's scope file matches nothing under the walked roots.
+            # That's a configuration error worth a warning, but not a
+            # blocking gate failure — recon may have other artifacts.
+            return []
 
     recon_files = [
         "recon_summary.md", "subsystem_map.md", "attack_surface.md",

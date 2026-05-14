@@ -137,6 +137,8 @@ __all__ = [
     "_normalize_matrix_label",
     "_normalize_report_id",
     "_normalize_subsystem_scope",
+    "_load_scope_file_paths",
+    "_path_in_scope_file",
     "_parse_chunk_heading_inventory",
     "_parse_chunk_table_inventory",
     "_parse_hypothesis_constituents",
@@ -5060,5 +5062,78 @@ def _normalize_subsystem_scope(scope: str | None) -> str:
 def _path_in_subsystem_scope(rel_path: str, scope_prefix: str) -> bool:
     if not scope_prefix:
         return True
-    rel = rel_path.replace("\\", "/").lstrip("./")
-    return rel == scope_prefix or rel.startswith(scope_prefix + "/")
+    rel = rel_path.replace("\\", "/").lstrip("./").lower()
+    pfx = scope_prefix.replace("\\", "/").lstrip("./").lower()
+    return rel == pfx or rel.startswith(pfx + "/")
+
+
+def _load_scope_file_paths(scope_file: str | None) -> set[str]:
+    """Parse the wizard's scope file into a set of file identifiers.
+
+    Accepts any of the wizard's documented formats (mirrors the parser in
+    `plamen.estimate_cost`):
+
+      - bare paths:        `src/contracts/Vault.sol`
+      - markdown tables:   `| GatewaySend.sol | 301 lines |`
+      - bullet lists:      `- contracts/Vault.sol`
+
+    Returns a lowercase set containing both each full POSIX-normalised
+    relative path AND each bare basename, so coverage gates can match by
+    either citation form. Returns an empty set if `scope_file` is empty,
+    missing, or unreadable — callers should treat an empty set as
+    "no scope file provided, walk everything".
+
+    Used by the recon coverage / subsystem coverage validators to narrow
+    the universe of substantial-module-must-be-cited checks when the user
+    has explicitly listed audit-scope files. Without this consultation,
+    a 200-contract repo with a 5-file scope list still false-trips the
+    gate for every uncited bucket.
+    """
+    if not scope_file:
+        return set()
+    try:
+        if not os.path.isfile(scope_file):
+            return set()
+    except (OSError, TypeError):
+        return set()
+
+    names: set[str] = set()
+    try:
+        with open(scope_file, "r", encoding="utf-8", errors="ignore") as sf:
+            for line in sf:
+                line = line.strip()
+                if not line or line.startswith("#") or line.startswith("//"):
+                    continue
+                for m in re.findall(r"[\w/\\.-]+\.(?:sol|rs|move|go|vy)", line):
+                    norm = m.replace("\\", "/").lstrip("./").lower()
+                    if norm:
+                        names.add(norm)
+                        # Also register the bare basename — citations may
+                        # appear as `Vault.sol` without a path prefix.
+                        bn = norm.rsplit("/", 1)[-1]
+                        if bn:
+                            names.add(bn)
+    except Exception:
+        return set()
+    return names
+
+
+def _path_in_scope_file(rel_path: str, scope_names: set[str]) -> bool:
+    """Return True when `rel_path` (POSIX, repo-relative) matches a scope
+    file entry. Empty `scope_names` means no scope file → match everything."""
+    if not scope_names:
+        return True
+    rel = rel_path.replace("\\", "/").lstrip("./").lower()
+    if rel in scope_names:
+        return True
+    bn = rel.rsplit("/", 1)[-1]
+    if bn in scope_names:
+        return True
+    # Suffix match: scope file says `contracts/Vault.sol`, walker found
+    # `src/contracts/Vault.sol`. The reverse (walker found shorter than
+    # scope) is also legal — scope `contracts/Vault.sol` should match
+    # `contracts/Vault.sol` directly (handled by direct-equality above).
+    for n in scope_names:
+        if "/" in n and (rel.endswith("/" + n) or n.endswith("/" + rel)):
+            return True
+    return False

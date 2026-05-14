@@ -3030,6 +3030,7 @@ def _run_phase_validators(
             config.get("language", ""),
             config.get("subsystem_scope"),
             backend=config.get("cli_backend", "claude"),
+            scope_file=config.get("scope_file"),
         )
         if coverage_issues:
             passed = False
