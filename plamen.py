@@ -977,6 +977,14 @@ def _scout_soroban_cmds():
     return ['cargo install cargo-scout-audit']
 
 
+# Same binary as Soroban's scout (cargo-scout-audit). Listed separately so
+# Solana-only installers still get the static analyzer even when they skip
+# the Soroban group, and so the post-install report can attribute it to
+# the right chain.
+def _scout_solana_cmds():
+    return ['cargo install cargo-scout-audit']
+
+
 def _scip_go_cmds():
     # Repo was moved from sourcegraph/scip-go to scip-code/scip-go. The
     # original module path now errors with `module declares its path as: ...`.
@@ -1056,6 +1064,12 @@ _INSTALL_RECIPES = {
          lambda: ['cargo install trident-cli'],
          ["trident"], "~2-3 min",
          [], ["rust", "openssl"] if sys.platform == "win32" else "rust"),
+
+        ("Scout (Anchor + native Solana static analyzer)",
+         lambda: _find_bin("cargo-scout-audit", _CARGO_PATHS),
+         _scout_solana_cmds,
+         ["cargo-scout-audit"], "~2-3 min",
+         ["~/.cargo/bin"], "rust"),
     ],
 
     "Move": [
@@ -1063,6 +1077,18 @@ _INSTALL_RECIPES = {
          lambda: _find_bin("aptos", ["~/.aptoscli/bin"]),
          _aptos_cmds,
          ["aptos"], "~30s", ["~/.aptoscli/bin"], None),
+
+        # Reuses the same binary as `L1 (ast-grep)`. Listed here so the
+        # SC-only installer (Move audits without L1) still picks it up for
+        # structural pattern matching on .move files.
+        ("ast-grep (structural pattern matching for Move)",
+         lambda: bool(_find_bin("ast-grep", _CARGO_PATHS)
+                      or _find_bin("sg", _CARGO_PATHS)
+                      or (sys.platform == "darwin" and _find_bin("ast-grep", ["/opt/homebrew/bin", "/usr/local/bin"]))),
+         _ast_grep_cmds,
+         ["ast-grep"], "~30s",
+         ["~/.cargo/bin", "/opt/homebrew/bin", "/usr/local/bin"],
+         "rust" if not (sys.platform == "darwin" and _has_brew()) else None),
 
         ("Sui CLI",
          lambda: _find_bin("sui", ["~/AppData/Local/bin", "~/.local/bin"]),

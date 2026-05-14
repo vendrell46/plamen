@@ -277,6 +277,7 @@ Write to {SCRATCHPAD}/build_status.md:
 - **Build Result**: success/failed ({error})
 - **Move Prover**: {available and passed / available but failed / specs not found / toolchain unavailable}
 - **PROVER_AVAILABLE**: {true/false}
+- **AST_GREP_AVAILABLE**: {true/false} (probe `ast-grep --version`. If true, TASK 2 supplements grep extraction with structural pattern matching that regex misses.)
 - **Token Standard**: {Coin<T> / FungibleAsset / both / neither detected}
 ```
 
@@ -284,6 +285,21 @@ Write to {SCRATCHPAD}/build_status.md:
 
 ### Move Prover (Primary Static Analyzer)
 The Move Prover is the primary static analysis tool for Move. It verifies spec annotations against code.
+
+### AST-Grep (lightweight structural supplement)
+
+When `AST_GREP_AVAILABLE = true`, ast-grep (`sg`) supports Move via
+tree-sitter. Use it when a structural query gives more precision than
+a regex — e.g., finding every call site of a sensitive entry function
+with a specific argument shape, or every `move_to<T>` whose `T` is a
+public resource. Suggested invocation:
+```
+ast-grep --lang move --pattern '$F(...)' sources/
+```
+Append findings (if any) to `{SCRATCHPAD}/static_analysis.md` under
+`## AST-Grep Patterns`. Best-effort: grep remains primary, ast-grep
+adds enrichment when available. A missing or failing ast-grep is not
+a hard error.
 
 **Procedure**:
 1. If PROVER_AVAILABLE = true from TASK 1, prover results are already captured
