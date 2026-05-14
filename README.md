@@ -332,7 +332,7 @@ plamen                              # terminal wrapper starts wizard
 $plamen-wizard                      # inside Codex CLI
 
 # Resume a crashed/interrupted audit
-python ~/.plamen/scripts/plamen_driver.py /path/to/project/.scratchpad/config.json
+python3 ~/.plamen/scripts/plamen_driver.py /path/to/project/.scratchpad/config.json
 ```
 
 The driver handles: phase scheduling, artifact gating, rate-limit pauses, retry-with-degradation, and subprocess isolation via the `plamen_home()` abstraction (resolves to `~/.claude/` or `~/.codex/plamen/` based on the configured backend). The LLM handles: agent orchestration, finding analysis, PoC execution, and report generation.

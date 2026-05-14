@@ -265,13 +265,13 @@ Monitor progress:  tail -f "{PROJECT_PATH}/.scratchpad/_plamen.log"
 Check checkpoint:  cat "{PROJECT_PATH}/.scratchpad/_v2_checkpoint.json"
 
 If the audit is interrupted (usage cap, crash, Ctrl+C), resume with:
-  python ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
+  python3 ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
 ```
 
 Then launch the driver **in the background** so the Claude Code session remains interactive. Use a single Bash tool call with `run_in_background: true`:
 
 ```bash
-python ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
+python3 ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
 ```
 
 Set `run_in_background: true` on the Bash tool call. Do NOT use `&` or `nohup` — Claude Code's `run_in_background` parameter handles this natively and will notify when the process completes.
@@ -289,7 +289,7 @@ The driver runs in the background. When it completes, Claude Code will notify yo
 Pipeline paused — rate limit or usage cap reached.
 
 Resume when quota refreshes:
-  python ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
+  python3 ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
 
 The driver auto-resumes from the last successful phase. No data is lost.
 ```
@@ -301,5 +301,5 @@ Pipeline stopped with errors. Check violations:
   cat "{PROJECT_PATH}/.scratchpad/violations.md"
 
 Resume (re-attempts failed phases):
-  python ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
+  python3 ~/.claude/scripts/plamen_driver.py "{PROJECT_PATH}/.scratchpad/config.json"
 ```

@@ -93,6 +93,27 @@ jobs:
               exit 1
               ;;
           esac
+      - name: Verify wizards + docs use python3 (no bare `python` for the driver)
+        # Regression guard. Exit code 127 ("command not found") was hit on
+        # Linux + macOS because wizards hardcoded `python ~/.claude/scripts/
+        # plamen_driver.py` while POSIX defaults to `python3`. The bare
+        # `python` form only works on Windows (and on POSIX distros that
+        # installed the `python-is-python3` shim, which is not default).
+        shell: bash
+        run: |
+          set -e
+          BAD=$(grep -rnE 'python ~/(\.claude|\.plamen)/scripts/plamen_driver\.py' \
+              commands/ docs/ rules/ README.md SETUP.md 2>&1 || true)
+          # Filter out lines where `python` is preceded by `python3` (e.g.
+          # `python3 ~/.claude/...`) — grep PCRE lookbehind isn't on every
+          # runner, so do it as a second pass.
+          BAD=$(echo "$BAD" | grep -v "python3 ~/" || true)
+          if [ -n "$BAD" ]; then
+            echo "FAIL: bare 'python' (not 'python3') invocations found in user-facing docs:"
+            echo "$BAD"
+            exit 1
+          fi
+          echo "OK: all driver invocations in docs use python3"
 
   unit-tests:
     name: pytest (${{ matrix.os }} / py${{ matrix.python }})

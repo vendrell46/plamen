@@ -129,10 +129,10 @@ plamen resume
 plamen resume /path/to/project/.scratchpad/config.json
 
 # Direct driver launch (advanced)
-python ~/.plamen/scripts/plamen_driver.py /path/to/project/.scratchpad/config.json
+python3 ~/.plamen/scripts/plamen_driver.py /path/to/project/.scratchpad/config.json
 
 # Fresh restart (discard previous progress)
-python ~/.plamen/scripts/plamen_driver.py --fresh /path/to/project/.scratchpad/config.json
+python3 ~/.plamen/scripts/plamen_driver.py --fresh /path/to/project/.scratchpad/config.json
 ```
 
 From Claude Code, running `/plamen-wizard` auto-detects an existing scratchpad and offers to resume.
