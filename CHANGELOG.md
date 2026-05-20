@@ -5,6 +5,19 @@ All notable changes to Plamen will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.2] - 2026-05-20
+
+Follow-up to v2.0.1 — same surface, error-message copy edit only.
+
+### Fixed
+- **Auth error messages** in both `plamen doctor` and the V2 driver's
+  `detect_not_logged_in` exit now point at BOTH supported auth paths
+  (OAuth `/login` AND `ANTHROPIC_API_KEY` env var) and explicitly state
+  that `~/.claude/settings.json` is NOT read as credentials. Previously
+  the messages mentioned only OAuth, which misled users who had dropped
+  an API key into settings.json expecting it to be picked up.
+  (`plamen.py` `run_doctor`, `scripts/plamen_driver.py` `run_phase`)
+
 ## [2.0.1] - 2026-05-20
 
 Isolated post-install gap fixes from a live-version user halt diagnosis. No

@@ -2803,9 +2803,13 @@ def run_doctor():
                 blob = (probe.stdout or "") + (probe.stderr or "")
                 if re.search(r"not logged in|/login\b|please log in|run `claude`",
                              blob, re.IGNORECASE):
-                    warn("`claude` is on PATH but NOT logged in — "
-                         "run `claude` interactively to authenticate "
-                         "(V2 driver will produce empty subprocess output otherwise)")
+                    warn("`claude` is on PATH but NOT authenticated. "
+                         "Either run `claude` interactively and complete `/login` (OAuth), "
+                         "OR set the ANTHROPIC_API_KEY environment variable with a valid "
+                         "Anthropic Console API key. "
+                         "A key dropped into ~/.claude/settings.json is NOT picked up — "
+                         "that file is for hooks/MCP/plugin config, not credentials. "
+                         "(V2 driver will produce empty subprocess output otherwise.)")
             except (subprocess.TimeoutExpired, OSError):
                 # 5s timeout means `claude` is alive and waiting on
                 # input — that is the authenticated path; no warning.

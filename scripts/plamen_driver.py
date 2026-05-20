@@ -2437,9 +2437,13 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
     # panel and lets the user `claude` interactively to fix.
     if detect_not_logged_in(log_path):
         log.error(
-            f"[{phase.name}] `claude` CLI not authenticated -- "
-            f"subprocess emitted /login or 'Not logged in'. Run `claude` "
-            f"interactively to authenticate, then resume."
+            f"[{phase.name}] `claude` CLI not authenticated -- subprocess "
+            f"emitted /login or 'Not logged in'. Fix with EITHER (1) run "
+            f"`claude` interactively and complete `/login` (OAuth), OR "
+            f"(2) set the ANTHROPIC_API_KEY environment variable with a "
+            f"valid Anthropic Console API key. A key in "
+            f"~/.claude/settings.json is NOT read as credentials -- "
+            f"that file is for hooks/MCP/plugin config. Then resume."
         )
         sys.exit(EXIT_DEGRADED)
     return rc
