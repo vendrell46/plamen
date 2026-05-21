@@ -76,28 +76,31 @@ Finding IDs use a per-agent prefix:
 
 ---
 
-## Overreach Handling
+## Output Discipline
 
-If any breadth agent wrote later-phase files (inventory/depth/chain/verify/report), treat those files as invalid overreach for sequencing purposes. Record the violation in `{SCRATCHPAD}/violations.md`, close the offending agent, and continue the pipeline from inventory using only valid `analysis_*` outputs.
+Breadth agents write exactly one manifest-derived `analysis_<focus_area>.md`
+file each. No other artifact family is a breadth output. The driver's
+gate ONLY accepts manifest-derived `analysis_*.md` filenames; anything
+else is invisible to the gate and discarded.
 
-Specifically, breadth agents write exactly one manifest-derived
-`analysis_<focus_area>.md` file. No other artifact family is a breadth output.
-`analysis_rescan_*.md` and `analysis_percontract_*.md` are owned by the later
-`rescan` phase, not first-pass breadth. Do not create, update, register, or
-mention them as completion artifacts in `spawn_manifest.md`.
+If a spawned agent emits a file outside the manifest, record the
+violation in `{SCRATCHPAD}/violations.md`, close the offending agent,
+and rely on the remaining valid `analysis_*` outputs.
 
 ---
 
 ## Agent Closeout
 
-- Do NOT read analysis files after agents return — the inventory agent reads them in Phase 4a.
-- Close completed breadth agents before inventory begins. Do not carry finished breadth workers into subsequent phases.
+- Do NOT read analysis files after agents return — file content stays on disk for downstream consumers; reading it here only wastes your context budget.
+- Close completed breadth agents before returning. Do not carry finished workers forward.
 
 ---
 
 ## Context Budget Protection
 
-The orchestrator does NOT read agent output files. Agent outputs stay on disk and are consumed by downstream phases (inventory agent, depth agents, chain agents). This protects the orchestrator's context from saturation.
+The orchestrator does NOT read agent output files. Agent outputs stay
+on disk for downstream consumers. This protects the orchestrator's
+context from saturation.
 
 Per the WRITE-THEN-VERIFY protocol, each agent:
 1. Writes output directly to `{SCRATCHPAD}/{expected_filename}` using the Write tool
@@ -124,12 +127,84 @@ Light mode caps at 3-4 sonnet agents. Core/Thorough use 5-9 opus agents based on
 Every breadth agent prompt MUST end with:
 
 ```
-SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agents' output files. Do NOT proceed to subsequent pipeline phases (re-scan, per-contract, inventory, semantic invariants, depth, RAG, chain analysis, verification, report). Return your findings and stop.
+SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agents' output files. Return your findings and stop.
 ```
-
-This prevents agents from attempting to run the entire pipeline solo.
 
 For the breadth orchestrator itself: always reuse existing substantial
 manifest-derived breadth outputs and spawn only the missing or stub rows from
 `spawn_manifest.md`. Re-run the completion loop until all expected outputs are
-substantial.
+substantial. As soon as the completion loop has zero open outputs, return
+immediately with a one-line summary. Producing additional files beyond
+the manifest-derived breadth set is discarded by the driver and wastes
+session tokens.
+
+---
+
+## One-Line Addition to Each Breadth Agent Prompt (compact)
+
+When constructing each breadth subagent's Task() prompt, also include
+this directive verbatim. It is MANDATORY, not optional — prior audits
+showed ~10% compliance when it was phrased as a soft suggestion, so it is
+now written as a hard obligation with a worked example:
+
+> **MANDATORY — Obligation Receipts.** If `{SCRATCHPAD}/opengrep_findings.md`
+> exists, your `analysis_<focus>.md` is INCOMPLETE until it ends with a
+> `## Obligation Receipts — opengrep_findings.md` section. Open
+> `opengrep_findings.md`, read every row, and for EVERY row whose `Location`
+> falls in your assigned scope, emit one of the two equivalent forms:
+>
+> **(a) Strict line form (preferred, unambiguous):**
+> `[OBLIG:opengrep_findings.md:<row#>] STATUS:R|D|C KEY:<rule>@<file:L> -> <finding_id|reason|next_phase>`
+>
+> **(b) Table form (also accepted by the gate):**
+> ```
+> | Row | Rule | Location | Addressed By | Notes |
+> |-----|------|----------|--------------|-------|
+> | 7 | reentrancy-eth | Vault.sol:212 | (none) | guarded by nonReentrant — false positive |
+> | 12 | use-ownable2step | Owner.sol:14 | AC-4 | single-step ownership, raised in access_control |
+> ```
+> The table form requires a numeric first column (the opengrep row index).
+> Status is inferred from the row contents: notes containing `style|gas|
+> false positive|non-security|by design` → DISMISSED; notes containing
+> `carry|defer|later phase|next phase` → CARRIED; any other non-empty
+> Addressed-By cell (a finding ID like `AC-4`, `BLIND-A-1`, prose, etc.)
+> → REPORTED. Rows where every non-first cell is empty / `N/A` / `-` are
+> NOT counted as receipts.
+>
+> STATUS short codes in the line form: `R` (Reported — you raised a finding
+> for it), `D` (Dismissed — give the concrete reason it is not a bug), or
+> `C` (Carried — deferred to a named later phase). You MUST account for
+> every in-scope row; a row you neither report, dismiss, nor carry is an
+> unaccounted obligation. Skip rows outside your scope (another agent
+> owns them).
+
+The Python gate (`_check_opengrep_obligation_coverage`) parses receipts
+in both forms — strict-line first (canonical), then section-bounded
+table form under any `## ... Obligation Receipts ... opengrep ...`
+heading. WARNING-only — the pipeline never halts on missing receipts —
+but an analysis file with zero receipts when opengrep rows exist is a
+documented quality failure.
+
+---
+
+## Orchestrator Termination Contract (HARD STOP)
+
+<!-- BUILD-STRIP: raw contract tokens for standalone contract tests only: analysis_rescan_*.md analysis_percontract_*.md findings_inventory.md semantic_invariants.md _overflow/breadth/ -->
+
+As soon as every expected `analysis_<focus>.md` from `spawn_manifest.md`
+is present on disk with size >= 200 bytes, return immediately:
+
+```
+DONE: {N} breadth analyses complete: {comma-separated filenames}
+```
+
+Any output written by the orchestrator after that signal is discarded
+by the driver and wastes session tokens. The orchestrator's job is
+spawning subagents and verifying their outputs — not producing analyses
+itself, not writing other artifact families, not exploring beyond the
+manifest.
+
+Do NOT write later-phase artifacts from this breadth subprocess:
+rescan outputs, per-contract outputs, inventory outputs, or semantic
+invariant outputs. If such output is needed, a later phase owns it.
+Quarantined overflow from this phase is discarded for cost discipline.

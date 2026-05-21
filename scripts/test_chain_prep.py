@@ -1,0 +1,301 @@
+"""Tests for chain_prep.py — the Phase 4c chain-bounding mechanical producers.
+
+Background: the chain phase hung 50 min on a live audit because Chain Agent 1's
+PHASE 1 grouping and Agent 2's PHASE 2 matching are unbounded. The chain prompts
+reference `chain_candidate_pairs.md` / `variable_finding_map.md` ("evaluate ONLY
+these pairs") but nothing produced them. `chain_prep.py` builds those producers.
+
+These tests lock in:
+  1. Each producer emits a well-formed file from a realistic fixture.
+  2. A pair with a real shared signal (state var / identifier / proximity)
+     appears; a provably-unrelated pair does not.
+  3. The bounded `chain_candidate_pairs.md` is capped and balanced; the full
+     set is complete in `chain_candidate_pairs_full.md`.
+  4. Graceful degradation: missing/malformed inputs → empty output, no raise.
+  5. Idempotency: re-running produces identical results.
+
+Run: `pytest scripts/test_chain_prep.py -v`
+"""
+from __future__ import annotations
+
+import importlib
+import os
+import sys
+from pathlib import Path
+
+
+def _cp():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+    if "chain_prep" in sys.modules:
+        del sys.modules["chain_prep"]
+    return importlib.import_module("chain_prep")
+
+
+def _write_inventory(sp: Path, findings: list[dict]) -> None:
+    """findings: list of {id, severity, location, verdict, root_cause, description}."""
+    lines = ["# Findings Inventory", "", "## Findings", ""]
+    for f in findings:
+        lines.append(f"### Finding [{f['id']}]: {f.get('title', f['id'] + ' title')}")
+        lines.append(f"**Severity**: {f.get('severity', 'Medium')}")
+        lines.append(f"**Location**: {f.get('location', 'X.sol:L1')}")
+        lines.append(f"**Verdict**: {f.get('verdict', 'CONFIRMED')}")
+        lines.append(f"**Root Cause**: {f.get('root_cause', '')}")
+        lines.append(f"**Description**: {f.get('description', '')}")
+        lines.append(f"**Impact**: {f.get('impact', 'some impact')}")
+        lines.append("")
+    (sp / "findings_inventory.md").write_text("\n".join(lines), encoding="utf-8")
+
+
+def _write_state_write_map(sp: Path, contract: str, variables: list[str]) -> None:
+    lines = ["# State Write Map", "", f"## {contract}.sol", "",
+             "| State Variable | Writer Function | Write Site | Access Guard |",
+             "|----------------|-----------------|------------|--------------|"]
+    for v in variables:
+        lines.append(f"| {v} | someWriter | L10 | onlyOwner |")
+    (sp / "state_write_map.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Producer 1 — chain_candidate_pairs
+# ---------------------------------------------------------------------------
+
+
+def test_candidate_pairs_shared_state_var(tmp_path):
+    cp = _cp()
+    _write_state_write_map(tmp_path, "Vault", ["refundInfos", "balances"])
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L100",
+         "root_cause": "claimRefund deletes refundInfos before transfer",
+         "description": "refundInfos mapping mutated unsafely"},
+        {"id": "INV-002", "severity": "Medium", "location": "Vault.sol:L300",
+         "root_cause": "onAbort writes refundInfos with wrong length",
+         "description": "refundInfos stored from abort context"},
+    ])
+    out = cp.compute_chain_candidate_pairs(tmp_path)
+    assert out["status"] == "ok"
+    assert out["pairs"] >= 1
+    text = (tmp_path / "chain_candidate_pairs.md").read_text(encoding="utf-8")
+    # The two findings share state var refundInfos → must be a STATE pair
+    assert "INV-001" in text and "INV-002" in text
+    assert "refundInfos" in text
+
+
+def test_candidate_pairs_excludes_provably_unrelated(tmp_path):
+    cp = _cp()
+    _write_state_write_map(tmp_path, "Vault", ["balances"])
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L100",
+         "root_cause": "balances underflow in withdraw",
+         "description": "the withdraw path corrupts balances"},
+        {"id": "INV-002", "severity": "Low", "location": "Router.sol:L9000",
+         "root_cause": "unrelated typo in a comment",
+         "description": "cosmetic only, distinct file, distinct everything"},
+    ])
+    out = cp.compute_chain_candidate_pairs(tmp_path)
+    # No shared state, no shared identifier, different files far apart → 0 pairs
+    assert out["pairs"] == 0
+    full = (tmp_path / "chain_candidate_pairs_full.md").read_text(encoding="utf-8")
+    assert "INV-001 |" not in full or "INV-002" not in full.split("INV-001")[-1][:50]
+
+
+def test_candidate_pairs_line_proximity(tmp_path):
+    cp = _cp()
+    _write_state_write_map(tmp_path, "Vault", [])
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L100-110",
+         "root_cause": "issue alpha", "description": "distinct wording one"},
+        {"id": "INV-002", "severity": "Low", "location": "Vault.sol:L130",
+         "root_cause": "issue beta", "description": "distinct wording two"},
+    ])
+    out = cp.compute_chain_candidate_pairs(tmp_path)
+    # L100-110 and L130 are within 60 lines → proximity pair
+    assert out["pairs"] >= 1
+
+
+def test_candidate_pairs_far_apart_same_file_not_paired(tmp_path):
+    cp = _cp()
+    _write_state_write_map(tmp_path, "Vault", [])
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L100",
+         "root_cause": "issue alpha", "description": "distinct wording one"},
+        {"id": "INV-002", "severity": "Low", "location": "Vault.sol:L9000",
+         "root_cause": "issue beta", "description": "distinct wording two"},
+    ])
+    out = cp.compute_chain_candidate_pairs(tmp_path)
+    # Same file but 8900 lines apart, no shared state/identifier → not a candidate
+    assert out["pairs"] == 0
+
+
+def test_candidate_pairs_bounded_cap_and_balance(tmp_path):
+    cp = _cp()
+    # 30 findings all sharing one state var → many STATE pairs
+    _write_state_write_map(tmp_path, "Vault", ["sharedVar"])
+    findings = [
+        {"id": f"INV-{i:03d}", "severity": "Medium", "location": f"Vault.sol:L{i*5}",
+         "root_cause": f"distinct rootcause sharedVar token{i}",
+         "description": f"sharedVar touched here uniqueWord{i}"}
+        for i in range(1, 31)
+    ]
+    _write_inventory(tmp_path, findings)
+    out = cp.compute_chain_candidate_pairs(tmp_path)
+    assert out["status"] == "ok"
+    assert out["bounded"] <= cp._BOUNDED_PAIR_CAP
+    # full set must be >= bounded
+    assert out["pairs"] >= out["bounded"]
+
+
+def test_candidate_pairs_fewer_than_two_findings(tmp_path):
+    cp = _cp()
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L1",
+         "root_cause": "lonely", "description": "only one finding"},
+    ])
+    out = cp.compute_chain_candidate_pairs(tmp_path)
+    assert out["status"] == "skipped"
+    assert out["pairs"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Producer 2 — variable_finding_map
+# ---------------------------------------------------------------------------
+
+
+def test_variable_finding_map_basic(tmp_path):
+    cp = _cp()
+    _write_state_write_map(tmp_path, "Vault", ["refundInfos", "feePercent"])
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L1",
+         "root_cause": "refundInfos deleted early",
+         "description": "refundInfos mutation"},
+        {"id": "INV-002", "severity": "Medium", "location": "Vault.sol:L2",
+         "root_cause": "feePercent has no upper bound",
+         "description": "feePercent unchecked"},
+        {"id": "INV-003", "severity": "Low", "location": "Vault.sol:L3",
+         "root_cause": "feePercent retroactive on refundInfos",
+         "description": "both feePercent and refundInfos involved"},
+    ])
+    out = cp.compute_variable_finding_map(tmp_path)
+    assert out["status"] == "ok"
+    text = (tmp_path / "variable_finding_map.md").read_text(encoding="utf-8")
+    assert "refundInfos" in text and "feePercent" in text
+    # refundInfos row should list INV-001 and INV-003
+    refund_line = next(l for l in text.splitlines() if l.startswith("| refundInfos"))
+    assert "INV-001" in refund_line and "INV-003" in refund_line
+
+
+def test_variable_finding_map_no_state_map_writes_header(tmp_path):
+    cp = _cp()
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L1",
+         "root_cause": "x", "description": "y"},
+    ])
+    # no state_write_map.md
+    out = cp.compute_variable_finding_map(tmp_path)
+    assert out["status"] == "skipped"
+    assert (tmp_path / "variable_finding_map.md").exists()  # header still written
+
+
+# ---------------------------------------------------------------------------
+# Producer 3 — enabler_baseline
+# ---------------------------------------------------------------------------
+
+
+def test_enabler_baseline_prefills_step0a(tmp_path):
+    cp = _cp()
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L100",
+         "verdict": "CONFIRMED", "root_cause": "dangerous state alpha"},
+        {"id": "INV-002", "severity": "Medium", "location": "Vault.sol:L200",
+         "verdict": "PARTIAL", "root_cause": "dangerous state beta"},
+        {"id": "INV-003", "severity": "Low", "location": "Vault.sol:L300",
+         "verdict": "REFUTED", "root_cause": "not dangerous - refuted"},
+    ])
+    out = cp.compute_enabler_baseline(tmp_path)
+    assert out["status"] == "ok"
+    # CONFIRMED + PARTIAL counted; REFUTED excluded
+    assert out["states"] == 2
+    text = (tmp_path / "enabler_results.md").read_text(encoding="utf-8")
+    assert "MECHANICAL_BASELINE_STEP0A" in text
+    assert "INV-001" in text and "INV-002" in text
+    assert "INV-003" not in text  # refuted not a dangerous state
+    assert "STEP 0a" in text and "STEP 0b" in text
+
+
+def test_enabler_baseline_no_confirmed(tmp_path):
+    cp = _cp()
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "Low", "location": "Vault.sol:L1",
+         "verdict": "REFUTED", "root_cause": "refuted"},
+    ])
+    out = cp.compute_enabler_baseline(tmp_path)
+    assert out["status"] == "skipped"
+    assert out["states"] == 0
+
+
+# ---------------------------------------------------------------------------
+# Degradation + idempotency
+# ---------------------------------------------------------------------------
+
+
+def test_all_producers_no_inventory(tmp_path):
+    """No findings_inventory.md → all producers degrade, none raise."""
+    cp = _cp()
+    out = cp.run_chain_prep(tmp_path)
+    assert out["candidate_pairs"]["status"] in ("skipped", "ok", "error")
+    assert out["variable_map"]["status"] in ("skipped", "ok", "error")
+    assert out["enabler_baseline"]["status"] in ("skipped", "ok", "error")
+    # The key contract: no exception escaped — run_chain_prep returned a dict.
+    assert isinstance(out, dict)
+
+
+def test_malformed_inventory_does_not_raise(tmp_path):
+    cp = _cp()
+    (tmp_path / "findings_inventory.md").write_text(
+        "this is not a valid inventory \x00\x01 garbage |||",
+        encoding="utf-8",
+    )
+    out = cp.run_chain_prep(tmp_path)  # must not raise
+    assert isinstance(out, dict)
+    assert "candidate_pairs" in out
+
+
+def test_idempotency(tmp_path):
+    cp = _cp()
+    _write_state_write_map(tmp_path, "Vault", ["refundInfos"])
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L100",
+         "root_cause": "refundInfos issue", "description": "refundInfos a"},
+        {"id": "INV-002", "severity": "Medium", "location": "Vault.sol:L120",
+         "root_cause": "refundInfos issue two", "description": "refundInfos b"},
+    ])
+    a = cp.run_chain_prep(tmp_path)
+    pairs_a = a["candidate_pairs"]["pairs"]
+    text_a = (tmp_path / "chain_candidate_pairs.md").read_text(encoding="utf-8")
+    b = cp.run_chain_prep(tmp_path)
+    pairs_b = b["candidate_pairs"]["pairs"]
+    text_b = (tmp_path / "chain_candidate_pairs.md").read_text(encoding="utf-8")
+    assert pairs_a == pairs_b
+    # Body identical except the timestamp line
+    def _strip_ts(t):
+        return "\n".join(l for l in t.splitlines() if not l.startswith("**Generated At**"))
+    assert _strip_ts(text_a) == _strip_ts(text_b)
+
+
+def test_enabler_baseline_overwrites_passthrough_stub(tmp_path):
+    """compute_enabler_baseline must replace the _write_chain_passthrough_outputs
+    stub, not append to it."""
+    cp = _cp()
+    # Simulate the driver's stub write
+    (tmp_path / "enabler_results.md").write_text(
+        "# Enabler Results\n\n**Status**: MECHANICAL_BASELINE\n\n"
+        "No new enabler paths were mechanically introduced by this scaffold.\n",
+        encoding="utf-8",
+    )
+    _write_inventory(tmp_path, [
+        {"id": "INV-001", "severity": "High", "location": "Vault.sol:L1",
+         "verdict": "CONFIRMED", "root_cause": "real dangerous state"},
+    ])
+    cp.compute_enabler_baseline(tmp_path)
+    text = (tmp_path / "enabler_results.md").read_text(encoding="utf-8")
+    assert "MECHANICAL_BASELINE_STEP0A" in text
+    assert "No new enabler paths were mechanically introduced" not in text

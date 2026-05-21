@@ -39,7 +39,7 @@ Score based on evidence artifacts in scratchpad files, not on the DA agent's sel
 composite = Evidence * 0.25 + Consensus * 0.25 + Analysis_Quality * 0.3 + RAG_Match * 0.2
 ```
 
-`RAG_Match` remains at 0.3 (floor) until Phase 4b.5 RAG Sweep updates it via the `final_scoring` phase.
+`RAG_Match` remains at 0.3 (floor). A separate re-scoring step finalizes it once RAG data is available.
 
 ### Re-evaluate Analysis Quality
 For findings re-analyzed by DA agents, recount Depth Evidence tags including new ones from iteration 2.

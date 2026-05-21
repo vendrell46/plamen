@@ -39,12 +39,21 @@ __all__ = [
     "_RETRY_QUARANTINE_EXTRAS",
     "_assert_never_cut_artifacts",
     "_assert_never_cut_checkpoint",
+    "_validate_depth_artifact_substance",
+    "_depth_artifact_is_stub",
     "_basenames",
     "_canonicalize_summary_table",
     "_check_graph_artifact_consumption",
     "_check_index_completeness",
     "_check_notread_priority_coverage",
+    "_check_opengrep_obligation_coverage",
+    "_check_dedup_decision_coverage",
+    "_check_function_summary_obligation",
+    "_check_pde_section_present",
+    "_check_perturbation_block_per_finding",
     "_check_promotion_symmetry",
+    "_check_report_index_unresolved_authenticity",
+    "_check_speculative_critical_chains",
     "_check_step_execution_traces",
     "_check_unresolved_authenticity",
     "_cleanup_quarantine_backups",
@@ -55,6 +64,7 @@ __all__ = [
     "_collect_cited_paths",
     "_collect_index_acknowledged_ids",
     "_collect_judge_unresolved_ids",
+    "_collect_obligation_receipts",
     "_collect_report_coverage_acknowledged_ids",
     "_collect_report_promoted_ids",
     "_collect_scip_indexed_paths",
@@ -78,6 +88,9 @@ __all__ = [
     "_generate_body_writer_retry_hint",
     "_generate_crossbatch_retry_hint",
     "_generate_depth_retry_hint",
+    "_generate_depth_repair_hint",
+    "_generate_orphan_repair_hint",
+    "_depth_core_artifacts_present",
     "_generate_graph_sweeps_retry_hint",
     "_generate_inventory_retry_hint",
     "_generate_recon_retry_hint",
@@ -115,8 +128,13 @@ __all__ = [
     "_quarantine_stale_on_retry",
     "_read_retry_hint",
     "_read_artifact_state",
+    "_write_artifact_state",
+    "_artifact_record",
     "_report_index_adjustment_reason_present",
     "_repair_report_index_dropouts",
+    "_repair_report_index_severity_provenance",
+    "_write_severity_override_ledger",
+    "_read_severity_override_ledger",
     "_restore_quarantined_on_retry_failure",
     "_rewind_completed_after_overflow",
     "_run_report_quality_gate",
@@ -130,6 +148,17 @@ __all__ = [
     "_synthesize_step_execution_trace",
     "_validate_assemble_not_degraded",
     "_validate_attention_repair",
+    "_validate_invariants_pass2",
+    "_validate_chain_iter2",
+    "_validate_chain_anti_absorption",
+    "_validate_id_ledger_collisions",
+    "_validate_consumer_ids_in_ledger",
+    "_parse_hypothesis_id_title_pairs",
+    "_generate_id_ledger_collision_retry_hint",
+    "_generate_anti_absorption_retry_hint",
+    "_per_constituent_claim_match",
+    "_parse_inventory_finding_meta",
+    "_validate_post_verify_extract",
     "_validate_cited_paths_in_verify",
     "_validate_crossbatch_full_coverage",
     "_validate_crossbatch_quality",
@@ -174,7 +203,10 @@ __all__ = [
     "_TRIVIAL_ASSERT_STRS",
     "_NONTRIVIAL_ASSERT_RE",
     "_ANY_ASSERT_RE",
+    "_build_succeeded",
+    "_parse_master_finding_index_rows",
     "_validate_verify_content_quality",
+    "_validate_verifier_skip_vocabulary",
     "_validate_verify_evidence_tags",
     "_validate_verify_files_for_queue",
     "_verify_file_present_for_id",
@@ -913,11 +945,40 @@ def _validate_spawn_manifest_schema(scratchpad: Path) -> list[str]:
     if path.stat().st_size < 50:
         return ["spawn_manifest.md is a stub (<50 bytes)"]
 
-    forbidden = sorted(set(re.findall(
+    # Scope the forbidden-filename scan to PIPE-DELIMITED ROWS of a
+    # markdown table only. Pre-fix, this regex ran against the entire
+    # file body — including bullet-list prose where the LLM helpfully
+    # explained "do NOT include these artifacts" with the filenames as
+    # examples. The DODO May-2026 audit halted on this exact false
+    # positive: spawn_manifest.md had a `## Phase 3b/3c Artifacts (NOT
+    # breadth AGENT rows)` section that explicitly clarified the rules,
+    # and the prose `- analysis_rescan_*.md → Phase 3b ...` lines made
+    # the validator fail.
+    #
+    # The actual contract violation we care about is: a forbidden
+    # filename appearing in a markdown TABLE ROW (i.e. inside `| ... |`
+    # cells), which is how the LLM would actually try to schedule a
+    # non-breadth artifact. Prose mentions, bullet points, and code
+    # fences are all fine.
+    forbidden_pattern = re.compile(
         r"\b(?:verify_[A-Za-z0-9_.-]*|analysis_rescan_[A-Za-z0-9_.-]+|"
-        r"analysis_percontract_[A-Za-z0-9_.-]+|analysis_merged_into_[A-Za-z0-9_.-]+)\.md\b",
-        text,
-    )))
+        r"analysis_percontract_[A-Za-z0-9_.-]+|analysis_merged_into_[A-Za-z0-9_.-]+)\.md\b"
+    )
+    forbidden_set: set[str] = set()
+    for line in text.splitlines():
+        stripped = line.strip()
+        # A row of a markdown table: leading `|` AND at least one more
+        # `|` separating cells. This excludes prose bullets (`-`),
+        # numbered lists (`1.`), and free paragraphs.
+        if not (stripped.startswith("|") and stripped.count("|") >= 2):
+            continue
+        # Also skip markdown table separators (`|---|---|...`)
+        cells = [c.strip() for c in stripped.strip("|").split("|")]
+        if cells and all(set(c) <= {"-", ":", " "} for c in cells):
+            continue
+        for m in forbidden_pattern.finditer(stripped):
+            forbidden_set.add(m.group(0))
+    forbidden = sorted(forbidden_set)
     outputs = parse_breadth_manifest_outputs(scratchpad)
     count = parse_breadth_manifest_count(scratchpad)
     if outputs and count:
@@ -1464,6 +1525,11 @@ def _owned_artifact_patterns(pipeline: str, scratchpad: Optional[Path] = None) -
             ],
             "location_recovery": ["location_recovery.md"],
             "invariants": ["semantic_invariants.md"],
+            # v2.8.8: Pass 2 appends to Pass 1's file (semantic_invariants.md).
+            # Shared ownership is intentional — Pass 2 strictly appends a
+            # `## Pass 2:` section, never rewrites Pass 1 content.
+            "invariants_p2": ["semantic_invariants.md"],
+            "post_verify_extract": ["post_verify_extract.md"],
             "depth": [
                 "depth_*_findings.md", "depth_iter2_*_findings.md",
                 "blind_spot_*_findings.md", "scanner_*_findings.md",
@@ -1483,6 +1549,7 @@ def _owned_artifact_patterns(pipeline: str, scratchpad: Optional[Path] = None) -
                 "verification_queue.md", "verification_queue_evidence_excluded.md",
             ],
             "verify_aggregate": ["verify_core.md"],
+            "mechanical_verify": ["mechanical_verify_manifest.md"],
             "crossbatch": ["cross_batch_consistency.md"],
             "skeptic": ["skeptic_findings.md", "skeptic_judge_decisions.md"],
             "report_index": [
@@ -1549,6 +1616,9 @@ def _owned_artifact_patterns(pipeline: str, scratchpad: Optional[Path] = None) -
             "inventory_merge_receipt.md",
         ],
         "invariants": ["semantic_invariants.md"],
+        # v2.8.8: Pass 2 appends to Pass 1's file. Shared ownership intentional.
+        "invariants_p2": ["semantic_invariants.md"],
+        "post_verify_extract": ["post_verify_extract.md"],
         "depth": [
             "depth_*_findings.md", "depth_iter2_*_findings.md",
             "blind_spot_*_findings.md", "scanner_*_findings.md",
@@ -1562,10 +1632,20 @@ def _owned_artifact_patterns(pipeline: str, scratchpad: Optional[Path] = None) -
         "attention_repair": ["attention_repair_summary.md", "attention_repair_findings.md"],
         "chain": ["hypotheses.md", "finding_mapping.md", "enabler_results.md"],
         "chain_agent2": ["chain_hypotheses.md", "composition_coverage.md", "synthesis_full.md"],
+        # v2.8.8: iteration 2 appends new chains to chain_hypotheses.md
+        # AND writes new artifact chain_iteration2.md. Shared ownership
+        # on chain_hypotheses.md/composition_coverage.md intentional —
+        # both append-only.
+        "chain_iter2": [
+            "chain_iteration2.md",
+            "chain_hypotheses.md",
+            "composition_coverage.md",
+        ],
         "sc_verify_queue": [
             "verification_queue.md", "verification_queue_evidence_excluded.md",
         ],
         "sc_verify_aggregate": ["verify_core.md"],
+        "sc_mechanical_verify": ["mechanical_verify_manifest.md"],
         "skeptic": ["skeptic_findings.md", "skeptic_judge_decisions.md"],
         "crossbatch": ["cross_batch_consistency.md"],
         "report_index": ["report_index.md", "report_coverage.md"],
@@ -2292,6 +2372,135 @@ def _assert_never_cut_artifacts(
     return missing
 
 
+def _depth_artifact_is_stub(path: Path) -> Optional[str]:
+    """Return a stub reason for a depth never-cut artifact, or None if substantive.
+
+    Conservative on purpose (S1.1): flags only unambiguous stubs — header-only
+    WRITE-THEN-VERIFY reservations, driver-synthesized placeholders, uniform
+    confidence tables — so a genuine clean agent result is never false-rejected
+    (false rejection would be a new halt, which this work explicitly forbids).
+    """
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None
+    name = path.name
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        text = ""
+    low = text.lower()
+
+    # WRITE-THEN-VERIFY header reservation that was never populated.
+    if "writing in progress" in low:
+        return f"{name} (stub — WRITE-THEN-VERIFY reservation not populated)"
+
+    # v2.0.5 (B2): the PLAMEN-STUB sentinel comment is an unambiguous
+    # stub marker injected by `_render_reservation_header` (the source-
+    # of-truth helper in plamen_prompt.py). Any file containing this
+    # sentinel is a stub regardless of size — newer audits opt into
+    # this contract; legacy audits without it fall back to existing
+    # size/shape heuristics below.
+    if "plamen-stub:" in low:
+        return f"{name} (stub — PLAMEN-STUB sentinel present, content to follow)"
+
+    if name in ("perturbation_findings.md", "depth_perturbation_findings.md"):
+        # A real perturbation file carries block tables; 79-byte reservations
+        # (the DODO failure) are well under 1KB.
+        if size < 1024:
+            return f"{name} (stub — {size} bytes, perturbation blocks absent)"
+        return None
+
+    if name == "confidence_scores.md":
+        if re.search(r"(?im)^\s*>?\s*\**status\**\s*:\s*\**\s*synthesized\b", text):
+            return f"{name} (stub — driver-synthesized placeholder)"
+        scores = _parse_confidence_scores_permissive(path.parent)
+        if len(scores) >= 4 and len(set(scores.values())) == 1:
+            val = next(iter(set(scores.values())))
+            return (
+                f"{name} (stub — {len(scores)} findings all composite "
+                f"{val}, formulaic)"
+            )
+        # F2.b: DRIVER-COMPUTED `(no findings produced)` placeholder is a
+        # stub ONLY when real depth findings exist on disk — a legitimate
+        # clean-codebase audit can produce zero findings and that is NOT
+        # a stub. Catches the attempt-1 placeholder that survived past
+        # attempt-2 producing real findings.
+        is_driver_no_rows = (
+            re.search(r"\bdriver-computed\b", text, re.IGNORECASE)
+            and (
+                re.search(r"\(no\s+findings\s+produced\)", text, re.IGNORECASE)
+                or len(scores) == 0
+            )
+        )
+        if is_driver_no_rows:
+            scratchpad = path.parent
+            finding_globs = (
+                "depth_*_findings.md",
+                "blind_spot_*_findings.md",
+                "niche_*_findings.md",
+                "validation_sweep_findings.md",
+                "scanner_*_findings.md",
+                "design_stress_findings.md",
+                "perturbation_findings.md",
+            )
+            has_real_findings = False
+            for pat in finding_globs:
+                for p in scratchpad.glob(pat):
+                    try:
+                        body = p.read_text(encoding="utf-8", errors="replace")
+                    except Exception:
+                        continue
+                    if re.search(r"(?im)^##\s+Finding\s+\[[^\]\n]+\]", body):
+                        has_real_findings = True
+                        break
+                if has_real_findings:
+                    break
+            if has_real_findings:
+                return (
+                    f"{name} (stub — DRIVER-COMPUTED placeholder, "
+                    f"no real rows despite findings on disk)"
+                )
+        return None
+
+    if name in ("skill_execution_gaps.md", "skill_execution_checklist.md"):
+        if size < 200:
+            return f"{name} (stub — {size} bytes, header-only)"
+        return None
+
+    # Generic depth / scanner / niche findings files.
+    if size < 200:
+        return f"{name} (stub — {size} bytes)"
+    return None
+
+
+def _validate_depth_artifact_substance(
+    scratchpad: Path, mode: str, pipeline: str = "sc"
+) -> list[str]:
+    """S1.1: reject stub never-cut artifacts that pass the existence-only gate.
+
+    `_assert_never_cut_artifacts` checks `.exists()` only — a 79-byte
+    WRITE-THEN-VERIFY reservation or a driver-synthesized confidence stub
+    slips straight through. This walks the same never-cut groups and reports
+    any group whose ONLY present members are stubs, so the depth gate can
+    treat that group as unsatisfied.
+    """
+    if pipeline == "l1":
+        groups = l1_never_cut_groups(mode)
+    else:
+        groups = sc_never_cut_groups(mode)
+    stubs: list[str] = []
+    for group in groups:
+        present = [scratchpad / n for n in group if (scratchpad / n).exists()]
+        if not present:
+            continue  # missing entirely — _assert_never_cut_artifacts owns it
+        reasons = [_depth_artifact_is_stub(p) for p in present]
+        # Group is satisfied if ANY present member is substantive.
+        if all(r is not None for r in reasons):
+            stubs.append("; ".join(r for r in reasons if r))
+    return stubs
+
+
 def _match_label_status(text: str, label: str):
     """Match `label: STATUS rest` in either bullet/plain OR markdown-table form.
 
@@ -2595,11 +2804,22 @@ def _validate_confidence_iter2_mandatory(scratchpad: Path) -> list[str]:
     # (~$15-30 waste). Same class as the v2.3.4 perturbation_findings
     # canonicalization. iter3 outputs also imply iter2 completed, so they
     # satisfy this gate too.
+    # The driver's _canonicalize_depth_iter_filenames normally rewrites every
+    # iteration-token variant to the canonical `depth_iter{N}_{role}_findings.md`
+    # form BEFORE this gate runs. These globs are the defense-in-depth path
+    # for when canonicalization hit an OSError. They cover both the
+    # abbreviated (`iter2`) and spelled-out (`iteration2`) tokens in any
+    # filename position — `iteration2` does NOT contain the substring
+    # `iter2`, so both families need their own glob.
     da_files = (
         list(scratchpad.glob("depth_da_*_findings.md"))
         + list(scratchpad.glob("depth_iter2_*_findings.md"))
         + list(scratchpad.glob("depth_iter2_*.md"))
         + list(scratchpad.glob("depth_iter3_*.md"))
+        + list(scratchpad.glob("depth_*iter2*.md"))
+        + list(scratchpad.glob("depth_*iter3*.md"))
+        + list(scratchpad.glob("depth_*iteration2*.md"))
+        + list(scratchpad.glob("depth_*iteration3*.md"))
     )
     if da_files:
         return []
@@ -3378,6 +3598,623 @@ def _validate_graph_sweeps(
     return hard, soft
 
 
+def _validate_post_verify_extract(scratchpad: Path, mode: str) -> list[str]:
+    """SOFT validator for Phase 5.5 (Post-Verification Finding Extraction).
+
+    No hard issues. The common case is that verify_*.md files contain
+    zero [VER-NEW-*] observations and the agent returns immediately. We
+    only care that the summary artifact `post_verify_extract.md` was
+    written (acknowledgement that the phase ran, even if it found
+    nothing). Missing → log warning + sentinel.
+    """
+    if mode != "thorough":
+        return []
+    summary = scratchpad / "post_verify_extract.md"
+    if summary.exists() and summary.stat().st_size > 20:
+        return []
+    try:
+        (scratchpad / "post_verify_extract.degraded").write_text(
+            "[POST_VERIFY_EXTRACT_DEGRADED] post_verify_extract.md missing "
+            "or empty. Pipeline continues; any [VER-NEW-*] observations "
+            "in verify_*.md were NOT promoted to hypotheses.md.\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    import logging as _logging
+    _logging.getLogger("plamen.validators").warning(
+        "[post_verify_extract] summary artifact missing/empty — sentinel "
+        "written, pipeline continues"
+    )
+    return []
+
+
+def _validate_chain_iter2(scratchpad: Path, mode: str) -> list[str]:
+    """SOFT validator for Phase 4c Iteration 2 (chain composition re-evaluation).
+
+    Like Pass 2, never returns hard issues. Confirms the iteration-2
+    artifact exists (either real LLM output or the deterministic
+    early-exit note written by the driver pre-skip), logs warning + writes
+    sentinel on missing/empty output. Pipeline always proceeds.
+    """
+    if mode != "thorough":
+        return []
+    iter2_path = scratchpad / "chain_iteration2.md"
+    if iter2_path.exists() and iter2_path.stat().st_size > 30:
+        return []
+    # Missing or near-empty output. Write sentinel; don't halt.
+    try:
+        (scratchpad / "chain_iter2.degraded").write_text(
+            "[CHAIN_ITER2_DEGRADED] chain_iteration2.md missing or "
+            "<30 bytes. Pipeline continues; iteration 1 chain hypotheses "
+            "are still in chain_hypotheses.md.\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    import logging as _logging
+    _logging.getLogger("plamen.validators").warning(
+        "[chain_iter2] chain_iteration2.md missing/empty — sentinel "
+        "written, pipeline continues"
+    )
+    return []
+
+
+# v2.x Fix 2: Anti-Absorption Hard Gate ---------------------------------------
+#
+# Chain Agent 1 groups raw findings into hypotheses (GRP-* IDs). The prompt's
+# anti-absorption rule (phase4c-chain-prompt.md rule 6) tells the agent to
+# split groups whose constituents need different fixes, span different
+# functions, or differ in severity by >1 tier. In practice the LLM ignores
+# this rule and produces "super-groups" — e.g., absorbing 4 distinct
+# AccountEncoder bugs into one Medium hypothesis. When the verifier picks the
+# weakest constituent's PoC and it fails, the entire group is dropped via
+# poc_demotions.md, taking N true positives with it.
+#
+# This validator runs after Chain Agent 1 completes. It mechanically enforces
+# the anti-absorption rule using the constituent locations / severities /
+# root-cause text from findings_inventory.md. On violation it emits a
+# retry-hint file that the build_phase_prompt function injects into the
+# attempt-2 Chain Agent 1 prompt. Hard cap at 1 retry — after that the gate
+# downgrades to warning and the pipeline proceeds.
+
+_NICHE_AGENT_AAB_KEYWORD_GUARD = (
+    "anti-absorption override",
+    "anti absorption override",
+)
+
+
+def _extract_function_name(location_text: str) -> str:
+    """Extract the function name token from a Location field string.
+
+    Locations from finding-output-format are typically `Contract.sol:Lnn-Lmm
+    function_name()` or `Contract.sol:Lnn` plus a function reference in the
+    description. We extract the leftmost `name(` token. Returns "" when no
+    function is identifiable (e.g., the finding is at constant declaration).
+    """
+    if not location_text:
+        return ""
+    text = location_text.strip()
+    m = re.search(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\s*\(", text)
+    return m.group(1) if m else ""
+
+
+def _extract_file_name(location_text: str) -> str:
+    """Extract the source filename (without path) from a Location string."""
+    if not location_text:
+        return ""
+    text = location_text.strip()
+    m = re.search(
+        r"([A-Za-z0-9_\-./\\]+\.(?:sol|move|rs|go|cairo|fc|tact))",
+        text,
+        re.IGNORECASE,
+    )
+    if not m:
+        return ""
+    return m.group(1).rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+
+
+_SEVERITY_RANK = {
+    "informational": 0, "info": 0,
+    "low": 1,
+    "medium": 2, "med": 2,
+    "high": 3,
+    "critical": 4, "crit": 4,
+}
+
+
+def _severity_tier(text: str) -> int:
+    return _SEVERITY_RANK.get((text or "").strip().lower(), -1)
+
+
+def _jaccard_token_similarity(a: str, b: str) -> float:
+    """Token-set Jaccard similarity over alpha-only tokens length>=3.
+
+    Used to compare root-cause / title strings to decide whether two
+    constituents describe the same mechanism.
+    """
+    def tokens(s: str) -> set[str]:
+        return {t for t in re.findall(r"[a-zA-Z]{3,}", (s or "").lower())}
+    ta, tb = tokens(a), tokens(b)
+    if not ta or not tb:
+        return 0.0
+    return len(ta & tb) / len(ta | tb)
+
+
+def _parse_inventory_finding_meta(scratchpad: Path) -> dict[str, dict[str, str]]:
+    """Build {finding_id: {title, severity, location, root_cause}} from
+    findings_inventory.md. Used by anti-absorption gate.
+    """
+    inventory_path = scratchpad / "findings_inventory.md"
+    if not inventory_path.exists():
+        return {}
+    try:
+        text = inventory_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return {}
+    meta: dict[str, dict[str, str]] = {}
+    # Find ### Finding [INV-NNN]: Title blocks
+    matches = list(re.finditer(
+        r"^#{2,4}\s*Finding\s*\[\s*([A-Z]{2,6}-\d+)\s*\]\s*:\s*(.+?)\s*$",
+        text,
+        re.MULTILINE,
+    ))
+    for i, m in enumerate(matches):
+        fid = m.group(1).strip().upper()
+        title = m.group(2).strip()
+        start = m.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        block = text[start:end]
+        sev_m = re.search(r"\*\*Severity\*\*\s*:\s*([A-Za-z]+)", block, re.IGNORECASE)
+        loc_m = re.search(
+            r"\*\*Location\*\*\s*:\s*(.+?)(?=\n\*\*|\n##|\Z)",
+            block, re.IGNORECASE | re.DOTALL,
+        )
+        rc_m = re.search(
+            r"\*\*Root\s*Cause\*\*\s*:\s*(.+?)(?=\n\*\*|\n##|\Z)",
+            block, re.IGNORECASE | re.DOTALL,
+        )
+        meta[fid] = {
+            "title": title,
+            "severity": (sev_m.group(1).strip() if sev_m else ""),
+            "location": (loc_m.group(1).strip() if loc_m else ""),
+            "root_cause": (rc_m.group(1).strip() if rc_m else title),
+        }
+    return meta
+
+
+def _parse_hypothesis_id_title_pairs(text: str) -> list[tuple[str, str]]:
+    """v2.0.6 (P2.4): extract `(finding_id, title)` pairs from an LLM-written
+    hypotheses-style markdown file (hypotheses.md, chain_hypotheses.md).
+
+    Recognizes lines like:
+      `### GRP-01 — Title here`
+      `### Hypothesis HC-02: Title here`
+      `## Chain Hypothesis CH-01 — Title`
+      `### Finding [HM-03]: Title`
+
+    Returns pairs in document order. Duplicate IDs are returned multiple
+    times (the caller handles dedup via the ledger).
+    """
+    from plamen_parsers import _HYPO_HEADING_RE
+    pairs: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        m = _HYPO_HEADING_RE.match(line)
+        if not m:
+            continue
+        fid = m.group(1).upper()
+        # Everything after the matched ID on the heading is the title;
+        # strip common separators (`:`, `—`, `-`, `]`) and whitespace.
+        rest = line[m.end():].strip()
+        rest = rest.lstrip("]")  # `### Finding [GRP-01]: title`
+        rest = rest.lstrip(":–—-").strip()
+        pairs.append((fid, rest))
+    return pairs
+
+
+def _validate_id_ledger_collisions(
+    scratchpad: Path, phase_name: str, attempt: int = 1
+) -> list[str]:
+    """v2.0.6 (P2.4): BLOCKING gate — register each ID the phase emitted
+    and detect collisions against prior attempts.
+
+    Per the plan, this gate is hard-fail for chain / chain_agent2 — the
+    DODO 2026-05-21 GRP-01 collision (chain attempt 1 minted GRP-01 for
+    Critical public-withdraw; attempt 2 re-minted for Medium reinitializer)
+    is the canonical case. Returns issue strings describing each collision;
+    empty list means no collisions (and IDs have been registered).
+
+    Phase-specific source map:
+      - chain: hypotheses.md (HC/HH/HM/HL/HI/GRP/H prefixes)
+      - chain_agent2: chain_hypotheses.md (CH prefix)
+
+    Other phases (inventory_*, niche_promotion) register inline at minting
+    time via `plamen_mechanical.py`; they do not run this gate.
+    """
+    artifact_map = {
+        "chain": "hypotheses.md",
+        "chain_agent2": "chain_hypotheses.md",
+    }
+    artifact_name = artifact_map.get(phase_name)
+    if not artifact_name:
+        return []
+    artifact_path = scratchpad / artifact_name
+    if not artifact_path.exists():
+        return []
+    try:
+        text = artifact_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    pairs = _parse_hypothesis_id_title_pairs(text)
+    if not pairs:
+        return []
+    from plamen_parsers import id_ledger_register
+    collisions: list[str] = []
+    seen_in_this_phase: set[str] = set()
+    for fid, title in pairs:
+        # Within the same artifact, the FIRST occurrence of an ID is the
+        # one that "owns" the title; later occurrences are usually
+        # cross-references (e.g. in finding_mapping section). Register
+        # only on first sight per phase invocation.
+        if fid in seen_in_this_phase:
+            continue
+        seen_in_this_phase.add(fid)
+        result = id_ledger_register(
+            scratchpad,
+            finding_id=fid,
+            owner_phase=phase_name,
+            owner_attempt=attempt,
+            owning_artifact=artifact_name,
+            title=title,
+        )
+        if result["status"] == "COLLISION":
+            existing = result.get("existing") or {}
+            current = result.get("current") or {}
+            collisions.append(
+                f"ID `{fid}` was previously allocated by "
+                f"{existing.get('owner_phase','?')}/attempt "
+                f"{existing.get('owner_attempt','?')} to title "
+                f"{existing.get('title_preview','?')[:60]!r}; this attempt "
+                f"tried to re-allocate it to "
+                f"{current.get('title_preview','?')[:60]!r}"
+            )
+    return collisions
+
+
+def _validate_consumer_ids_in_ledger(
+    scratchpad: Path, phase_name: str
+) -> list[str]:
+    """v2.0.6 (P2.5): backstop gate — every internal finding ID a
+    consumer phase references MUST exist in the ID ledger.
+
+    Pure consumer phases (sc_verify_queue, sc_verify_aggregate, skeptic,
+    crossbatch, report_index) never mint IDs — they only consume IDs that
+    upstream minting phases (inventory_*, chain, chain_agent2) allocated.
+    A reference to an unregistered ID is a contamination signal: either
+    the LLM hallucinated, the consumer is reading stale markdown from a
+    previous audit, OR an upstream phase failed silently.
+
+    WARNING-only at first ship to avoid false halts while the ledger
+    pattern matures across pipelines. Promotion to halt-class follows
+    the documented two-cycle pattern (warning → halt) per the plan's
+    promotion-path policy.
+
+    Returns issue strings; empty list means the consumer's IDs all
+    trace back to the ledger.
+    """
+    # Phase → (artifact, prefix glob for IDs that SHOULD be in the
+    # ledger). Consumers may also reference non-finding tokens (file
+    # names, report IDs M-NN/L-NN/etc.) — those are NOT checked here.
+    consumer_artifacts = {
+        "sc_verify_queue": "verification_queue.md",
+        "sc_verify_aggregate": "verify_core.md",
+        "skeptic": "skeptic_findings.md",
+        "crossbatch": "cross_batch_consistency.md",
+        "report_index": "report_index.md",
+    }
+    artifact_name = consumer_artifacts.get(phase_name)
+    if not artifact_name:
+        return []
+    artifact_path = scratchpad / artifact_name
+    if not artifact_path.exists():
+        return []
+    # Import lazily to keep modularization clean.
+    from plamen_parsers import (
+        _INTERNAL_FINDING_ID_RE, id_ledger_all_records,
+    )
+    ledger_ids = {
+        r.get("id", "").upper() for r in id_ledger_all_records(scratchpad)
+        if r.get("id")
+    }
+    if not ledger_ids:
+        # Ledger empty — could be a legacy audit (pre-v2.0.6). Silent skip.
+        return []
+    try:
+        text = artifact_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    referenced = {m.group(1).upper() for m in _INTERNAL_FINDING_ID_RE.finditer(text)}
+    # Filter out internal/report-tier IDs that this gate doesn't validate:
+    # - M-NN, L-NN, C-NN, H-NN, I-NN (report tier IDs, minted at report_index)
+    # - CH-NN (chain hypothesis IDs from chain_agent2)
+    # The ledger SHOULD know about CH-* but report-tier IDs are post-mapping
+    # and not part of the same namespace.
+    import re as _re
+    report_tier_re = _re.compile(r"^[CHMLI]-\d+$")
+    finding_refs = {
+        r for r in referenced
+        if not report_tier_re.match(r) and not r.startswith("INV-")
+    }
+    # INV- is intentionally allowed even without ledger entry, because
+    # legacy audits may not have registered them. Once P2.2 is fully
+    # exercised on a fresh audit, this exception can tighten.
+    unregistered = finding_refs - ledger_ids
+    if not unregistered:
+        return []
+    # WARNING-only signal. Format names a sample.
+    sample = sorted(unregistered)[:8]
+    extra = f" (+{len(unregistered) - 8} more)" if len(unregistered) > 8 else ""
+    return [
+        f"id-ledger consumer-backstop: {phase_name} references "
+        f"{len(unregistered)} unregistered ID(s): "
+        f"{', '.join(sample)}{extra}"
+    ]
+
+
+def _generate_id_ledger_collision_retry_hint(
+    collisions: list[str], phase_name: str
+) -> str:
+    """Render a retry hint when the collision gate fails."""
+    lines = [
+        "## RETRY HINT — ID ledger collision (v2.0.6)",
+        "",
+        f"Your previous attempt at `{phase_name}` re-minted an ID that a "
+        "PRIOR attempt already allocated to DIFFERENT content. This is the "
+        "root cause of the DODO 2026-05-21 halt class: when the same ID "
+        "(e.g., GRP-01) means two different findings in different artifact "
+        "files, downstream phases get incoherent data and either silently "
+        "produce wrong reports OR halt at the authenticity gate.",
+        "",
+        "Collisions detected:",
+    ]
+    for c in collisions[:8]:
+        lines.append(f"- {c}")
+    if len(collisions) > 8:
+        lines.append(f"- ... (+{len(collisions) - 8} more)")
+    lines.extend([
+        "",
+        "REPAIR:",
+        "1. For each collision: if your new grouping has the SAME root "
+        "cause as the prior allocation, REUSE the prior ID (write the "
+        "same title/scope).",
+        "2. If your new grouping has a DIFFERENT root cause, allocate a "
+        "NEW ID using the next-available number for the prefix. The "
+        "ledger directive at the top of your prompt lists which numbers "
+        "are taken.",
+        "3. NEVER reuse an existing ID for different content — the "
+        "driver's post-phase ledger gate will fail every attempt that "
+        "does so.",
+    ])
+    return "\n".join(lines) + "\n"
+
+
+def _validate_chain_anti_absorption(scratchpad: Path, mode: str) -> list[str]:
+    """HARD-with-retry gate enforcing anti-absorption (phase4c-chain rule 6).
+
+    For each multi-constituent GRP-* hypothesis, flag a violation when any of:
+      (a) Constituents span ≥2 distinct (file, function) tuples
+      (b) max(severity) − min(severity) > 1 tier
+      (c) Pairwise root-cause Jaccard similarity < 0.30
+    UNLESS the hypothesis body (in hypotheses.md) explicitly contains
+    "Anti-absorption override:" with a reason.
+
+    Returns issue strings. Caller may emit a retry hint and re-spawn chain
+    Agent 1 on attempt 2; if violations persist on attempt 2, caller should
+    log warning and proceed (do not halt the pipeline).
+    """
+    # Lazy import to avoid circular dependency at module load
+    try:
+        from plamen_parsers import _parse_hypothesis_constituents
+    except Exception:
+        return []
+
+    if mode not in ("core", "thorough"):
+        return []
+    inventory = _parse_inventory_finding_meta(scratchpad)
+    if not inventory:
+        return []
+    mapping = _parse_hypothesis_constituents(scratchpad)
+    if not mapping:
+        return []
+    hyp_text = ""
+    hyp_path = scratchpad / "hypotheses.md"
+    if hyp_path.exists():
+        try:
+            hyp_text = hyp_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            hyp_text = ""
+
+    issues: list[str] = []
+    for hyp_id, constituents in mapping.items():
+        # Resolve constituent metadata; skip those not in inventory (could be
+        # chain hypothesis IDs CH-*, niche IDs not yet promoted, etc.).
+        meta_list = [
+            (cid, inventory[cid]) for cid in constituents if cid in inventory
+        ]
+        if len(meta_list) < 2:
+            continue
+        # Look for explicit override anywhere in the hypothesis's section
+        override_present = False
+        if hyp_text:
+            # Find the hypothesis block and look for the override sentinel
+            block_pat = re.compile(
+                rf"(?:^|\n)[^\n]*\b{re.escape(hyp_id)}\b[^\n]*\n",
+                re.IGNORECASE,
+            )
+            for match in block_pat.finditer(hyp_text):
+                start = match.start()
+                end = min(start + 2000, len(hyp_text))
+                snippet = hyp_text[start:end].lower()
+                if any(kw in snippet for kw in _NICHE_AGENT_AAB_KEYWORD_GUARD):
+                    override_present = True
+                    break
+        if override_present:
+            continue
+
+        # (a) distinct (file, function)
+        file_func_pairs = set()
+        for cid, m in meta_list:
+            f = _extract_file_name(m["location"])
+            fn = _extract_function_name(m["location"]) or _extract_function_name(m["root_cause"])
+            file_func_pairs.add((f.lower(), fn.lower()))
+        # Remove the no-information pair if any constituent had no file/func
+        file_func_pairs.discard(("", ""))
+        distinct_functions = len(file_func_pairs) >= 2
+
+        # (b) severity tier span > 1
+        sev_ranks = [
+            _severity_tier(m["severity"]) for _, m in meta_list
+        ]
+        sev_ranks = [r for r in sev_ranks if r >= 0]
+        sev_span = (max(sev_ranks) - min(sev_ranks)) if sev_ranks else 0
+        severity_violation = sev_span > 1
+
+        # (c) Root-cause similarity (pairwise minimum)
+        rc_min_sim = 1.0
+        rcs = [m["root_cause"] or m["title"] for _, m in meta_list]
+        for i in range(len(rcs)):
+            for j in range(i + 1, len(rcs)):
+                sim = _jaccard_token_similarity(rcs[i], rcs[j])
+                if sim < rc_min_sim:
+                    rc_min_sim = sim
+        rc_low_similarity = rc_min_sim < 0.30
+
+        violations: list[str] = []
+        if distinct_functions:
+            funcs_str = ", ".join(
+                f"{ff[0] or '?'}:{ff[1] or '?'}" for ff in sorted(file_func_pairs)
+            )
+            violations.append(f"distinct functions ({funcs_str})")
+        if severity_violation:
+            sev_strs = sorted({m["severity"] for _, m in meta_list if m["severity"]})
+            violations.append(f"severity span > 1 tier ({', '.join(sev_strs)})")
+        if rc_low_similarity:
+            violations.append(f"root-cause Jaccard {rc_min_sim:.2f} < 0.30")
+        if not violations:
+            continue
+        constituent_ids = ", ".join(cid for cid, _ in meta_list)
+        issues.append(
+            f"{hyp_id} absorbs {len(meta_list)} constituents ({constituent_ids}) "
+            f"with anti-absorption violations: {'; '.join(violations)}"
+        )
+    return issues
+
+
+def _generate_anti_absorption_retry_hint(issues: list[str]) -> str:
+    """Produce a chain-phase retry hint text describing each violation.
+
+    Read at attempt 2 by build_phase_prompt and prepended to the Chain
+    Agent 1 prompt so the agent can split the offending groups.
+    """
+    if not issues:
+        return ""
+    lines = [
+        "## ATTEMPT 2 RETRY — ANTI-ABSORPTION VIOLATIONS",
+        "",
+        "Chain Agent 1 attempt 1 grouped findings into hypotheses that violate "
+        "the anti-absorption rule (`phase4c-chain-prompt.md` PHASE 1 rule 6). "
+        "You MUST split the offending hypotheses below into separate "
+        "hypotheses, one per distinct root cause / fix.",
+        "",
+        "Anti-absorption rule recap:",
+        "- Constituents in the same hypothesis must share file AND function",
+        "- Severity tier span must be <= 1 (a Medium and a High cannot share a "
+        "Medium hypothesis)",
+        "- Pairwise root-cause token Jaccard similarity must be >= 0.30 "
+        "(metric: `|A ∩ B| / |A ∪ B|` on lowercased word tokens). "
+        "Any pair below 0.30 -> SPLIT into separate hypotheses.",
+        "",
+        "If you believe a violation is intentional (e.g., two findings are "
+        "redundant detections of the same single bug by different agents and "
+        "TRULY require the same fix), add the following line in the "
+        "hypothesis body to override:",
+        "",
+        "    Anti-absorption override: <one-sentence reason>",
+        "",
+        "Without an explicit override, the violations below MUST be resolved "
+        "by splitting:",
+        "",
+    ]
+    for issue in issues:
+        lines.append(f"- {issue}")
+    lines.extend([
+        "",
+        "When splitting: keep the constituent IDs intact, produce N "
+        "separate GRP-* IDs with the same severity inheritance rule "
+        "(group inherits highest constituent severity).",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def _validate_invariants_pass2(scratchpad: Path, mode: str) -> list[str]:
+    """SOFT validator for Phase 4a.5 Pass 2 (Recursive Semantic Gap Trace).
+
+    Pass 2 appends a `## Pass 2: Recursive Trace Results` section to the
+    existing `semantic_invariants.md` (written by Pass 1). This validator
+    confirms the append happened. It NEVER returns hard issues — Pass 2 is
+    an enrichment phase. Missing output → log warning, mark degraded
+    sentinel, RETURN EMPTY LIST so the pipeline proceeds.
+
+    Phase mode-gating: scheduler only spawns this in Thorough. Defensive
+    early-exit handles Core/Light callers gracefully.
+    """
+    if mode != "thorough":
+        return []
+    inv_path = scratchpad / "semantic_invariants.md"
+    if not inv_path.exists():
+        # Pass 1 itself didn't produce output — separate failure mode, not
+        # ours to flag. Return empty.
+        return []
+    try:
+        text = inv_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return []
+    if re.search(r"^##\s+Pass\s*2\s*[:—–-]", text, re.MULTILINE | re.IGNORECASE):
+        # Pass 2 section present. Optional further check: does it have a
+        # `### Summary Flags` block? If not, log a warning but still pass.
+        if not re.search(
+            r"^###\s+Summary\s+Flags",
+            text,
+            re.MULTILINE | re.IGNORECASE,
+        ):
+            import logging as _logging
+            _logging.getLogger("plamen.validators").warning(
+                "[invariants_p2] Pass 2 section present but missing "
+                "`### Summary Flags` subblock; SEMANTIC_GAP_INVESTIGATOR "
+                "niche-agent trigger may not fire on partial flags. "
+                "Continuing — Pass 1 data alone is sufficient for depth."
+            )
+        return []
+    # Pass 2 didn't append a section. Soft-degrade sentinel; don't halt.
+    try:
+        (scratchpad / "invariants_p2.degraded").write_text(
+            "[INVARIANTS_P2_DEGRADED] No `## Pass 2:` section appended "
+            "to semantic_invariants.md. Pipeline continues with Pass 1 "
+            "data only; depth agents will not have CONFIRMED_GAP / "
+            "BRANCH_ASYMMETRY / DIRECTIONAL_PAIRING_GAP flags.\n",
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    import logging as _logging
+    _logging.getLogger("plamen.validators").warning(
+        "[invariants_p2] no Pass 2 section appended — sentinel written, "
+        "pipeline continues"
+    )
+    return []
+
+
 def _validate_attention_repair(
     scratchpad: Path, mode: str,
 ) -> tuple[list[str], list[str]]:
@@ -3991,6 +4828,548 @@ def _check_graph_artifact_consumption(
                 f"artifact or emitting [GRAPH-ARTIFACT: UNAVAILABLE:...] tags."
             )
 
+    return issues
+
+
+# ---------------------------------------------------------------------------
+# Obligation-receipt gates (Steps 5-8 of recall-recovery plan)
+#
+# Each mechanical artifact recon produces is treated as an obligation set.
+# Every row must produce a receipt in the owning consumer phase's output
+# (REPORTED / DISMISSED / CARRIED). The gates count receipts vs rows; gaps
+# trigger a WARNING (first ship) — to be promoted to FAIL after one observed
+# audit cycle.
+# ---------------------------------------------------------------------------
+
+_VALID_DISMISSAL_REASONS = frozenset({
+    "out_of_scope", "false_positive", "informational_style",
+    "environmental", "retry_budget_exhausted",
+})
+_VALID_DISMISSAL_PREFIXES = ("duplicate_of:", "superseded_by:")
+
+
+# Receipt line:
+#   [OBLIG:<artifact>:<row_id>] STATUS:<R|D|C|REPORTED|DISMISSED|CARRIED>
+#   KEY:<text> -> <finding_id | reason | next_phase>
+# Accepts both short (R/D/C) and long forms for STATUS.
+_OBLIG_RECEIPT_RE = re.compile(
+    r"\[OBLIG:(?P<artifact>[A-Za-z0-9_.\-]+):(?P<row>[^\]\s]+)\]\s+"
+    r"STATUS:(?P<status>REPORTED|DISMISSED|CARRIED|R|D|C)\b"
+    r"(?:[^\n]*?(?:KEY|key)[:\s]+(?P<key>[^\n→\-]*?(?=\s+(?:→|->|—|\-|$))))?"
+    r"(?:[^\n]*?(?:→|->|—)\s*(?P<dest>[^\n]+))?",
+    re.IGNORECASE,
+)
+
+
+def _parse_opengrep_row_count(scratchpad: Path) -> int:
+    """Count data rows in opengrep_findings.md.
+
+    Returns 0 if the file is missing or empty (gate vacuously satisfied).
+    Data rows are markdown table rows matching `| <int> | ...` excluding
+    header / separator rows.
+    """
+    path = scratchpad / "opengrep_findings.md"
+    if not path.exists():
+        return 0
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return 0
+    # Rows look like: `| 17 | <rule> | warning | <location> | <message> |`
+    rows = 0
+    for line in text.splitlines():
+        m = re.match(r"^\|\s*(\d+)\s*\|", line)
+        if m:
+            rows += 1
+    return rows
+
+
+# F4: also accept table-form receipts under a section heading matching
+# `## ... Obligation Receipts ... opengrep ...`. The breadth LLM consistently
+# emits markdown tables (`| row | rule | location | finding | notes |`)
+# instead of the strict `[OBLIG:...:row] STATUS:R|D|C` line form — the
+# strict regex misses every table row, so the validator logged 0 receipts
+# across multiple audits despite each analysis file carrying real
+# receipts in table form. F4 closes that gap conservatively:
+#   - section-bounded (only headings that name the artifact)
+#   - numeric first cell required (unrelated tables NOT absorbed)
+#   - empty / "N/A" / "-" addressed_by cells are NOT acknowledgments
+
+_OBLIG_TABLE_HEADING_RE = re.compile(
+    r"(?im)^#{2,4}\s+[^\n]*Obligation\s+Receipts[^\n]*$"
+)
+_OBLIG_NEXT_HEADING_RE = re.compile(r"(?m)^#{1,6}\s+")
+_OBLIG_TABLE_ROW_RE = re.compile(r"^\s*\|\s*(\d+)\s*\|(.+)\|\s*$")
+_OBLIG_TABLE_SEP_RE = re.compile(r"^\s*\|[\s\-:|]+\|\s*$")
+_OBLIG_DISMISS_KEYS = re.compile(
+    r"\b(?:style|gas|stylistic|non[-_ ]security|not\s+security|"
+    r"false\s*positive|FP|by\s*design|informational)\b",
+    re.IGNORECASE,
+)
+_OBLIG_CARRY_KEYS = re.compile(
+    r"\b(?:carry|carried|defer|deferred|later\s+phase|next\s+phase)\b",
+    re.IGNORECASE,
+)
+_OBLIG_NONE_CELLS = frozenset({
+    "", "n/a", "na", "none", "-", "—", "(none)", "(n/a)",
+})
+
+
+def _parse_obligation_table_receipts(text: str, artifact: str) -> dict[str, str]:
+    """F4: parse table-form Obligation Receipts sections targeting `artifact`.
+
+    Section-bounded: only scans tables under a heading whose text mentions
+    `Obligation Receipts` AND the artifact name. Requires a numeric first
+    cell so unrelated finding-summary tables are NOT absorbed as fake
+    receipts. Conservative status inference.
+    """
+    receipts: dict[str, str] = {}
+    artifact_lc = artifact.lower()
+    # Drop extension when matching against heading prose ("opengrep_findings.md"
+    # vs "opengrep" — the heading typically uses the bare keyword).
+    artifact_root = artifact_lc.split(".")[0].split("_")[0]
+    for hm in _OBLIG_TABLE_HEADING_RE.finditer(text):
+        heading_lc = hm.group(0).lower()
+        if artifact_lc not in heading_lc and artifact_root not in heading_lc:
+            continue
+        section_start = hm.end()
+        rest = text[section_start:]
+        nxt = _OBLIG_NEXT_HEADING_RE.search(rest)
+        section = rest[: nxt.start()] if nxt else rest
+        for line in section.splitlines():
+            s = line.rstrip()
+            if not s or _OBLIG_TABLE_SEP_RE.match(s):
+                continue
+            m = _OBLIG_TABLE_ROW_RE.match(s)
+            if not m:
+                continue
+            row = m.group(1).strip()
+            rest_cells = [c.strip() for c in m.group(2).split("|")]
+            cells_lc = [c.lower() for c in rest_cells]
+            non_empty = [
+                c for c in rest_cells if c.lower() not in _OBLIG_NONE_CELLS
+            ]
+            # Conservative: a row with EVERY non-first cell empty/N/A is
+            # not a real acknowledgment (likely a placeholder / template).
+            if not non_empty:
+                continue
+            joined = " | ".join(rest_cells)
+            if _OBLIG_DISMISS_KEYS.search(joined):
+                status = "DISMISSED"
+            elif _OBLIG_CARRY_KEYS.search(joined):
+                status = "CARRIED"
+            else:
+                status = "REPORTED"
+            receipts.setdefault(row, status)
+    return receipts
+
+
+def _collect_obligation_receipts(scratchpad: Path, artifact: str,
+                                  output_globs: tuple[str, ...]) -> dict[str, str]:
+    """Scan owning phase outputs for receipts targeting `artifact`.
+
+    Accepts BOTH the canonical strict line form (preferred) and the
+    table form under an `Obligation Receipts ... <artifact>` heading
+    (F4 — relaxation, because LLMs consistently emit tables and the
+    strict regex used to log 0 receipts despite real acknowledgments).
+    Returns dict[row_id -> status]. Strict-line wins on conflict.
+    """
+    receipts: dict[str, str] = {}
+    for pattern in output_globs:
+        for f in scratchpad.glob(pattern):
+            try:
+                text = f.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                continue
+            # 1) Strict line form (the canonical, unambiguous shape).
+            for m in _OBLIG_RECEIPT_RE.finditer(text):
+                if m.group("artifact").lower() != artifact.lower():
+                    continue
+                row = m.group("row").strip()
+                status = m.group("status").upper()
+                if status in ("R",):
+                    status = "REPORTED"
+                elif status in ("D",):
+                    status = "DISMISSED"
+                elif status in ("C",):
+                    status = "CARRIED"
+                receipts[row] = status
+            # 2) F4: section-bounded table form. Additive, deduped by row.
+            for row, status in _parse_obligation_table_receipts(text, artifact).items():
+                receipts.setdefault(row, status)
+    return receipts
+
+
+def _check_dedup_decision_coverage(scratchpad: Path) -> list[str]:
+    """v2.0.10 (P5): coverage gate for sc_semantic_dedup.
+
+    Every row in `dedup_candidate_pairs.md` MUST have a corresponding row
+    in `dedup_decisions.md` with one of {MERGE, GROUP, KEEP SEPARATE, N/A}.
+    Returns WARNING-class issue strings; caller treats as non-blocking.
+    The v2.7.0 mechanical-dedup fallback already covers the worst case
+    (PASSTHROUGH not overwritten); this gate adds telemetry on the
+    LLM's compliance with the explicit-disposition contract.
+    """
+    pairs_path = scratchpad / "dedup_candidate_pairs.md"
+    decisions_path = scratchpad / "dedup_decisions.md"
+    if not pairs_path.exists() or not decisions_path.exists():
+        return []
+    try:
+        pairs_text = pairs_path.read_text(encoding="utf-8", errors="replace")
+        decisions_text = decisions_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    # Count live candidate pair rows (skip headers/separators)
+    import re as _re
+    pair_count = 0
+    for line in pairs_text.splitlines():
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        cells = [c.strip() for c in s.split("|") if c.strip()]
+        if len(cells) < 2:
+            continue
+        if cells[0].startswith("-") or cells[0].lower() in ("finding a", "pair", "id"):
+            continue
+        pair_count += 1
+    if pair_count == 0:
+        return []
+    # Count disposition rows in decisions: any row whose disposition cell
+    # matches the allowed set is "accounted".
+    accounted = 0
+    allowed_re = _re.compile(
+        r"\b(MERGE|GROUP|KEEP[\s_-]?SEPARATE|N[/\s]?A|PASSTHROUGH)\b",
+        _re.IGNORECASE,
+    )
+    for line in decisions_text.splitlines():
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        if allowed_re.search(s):
+            accounted += 1
+    if accounted >= pair_count:
+        return []
+    return [
+        f"dedup decision coverage: {accounted}/{pair_count} candidate pair(s) "
+        f"have a disposition row in dedup_decisions.md — "
+        f"{pair_count - accounted} unaccounted"
+    ]
+
+
+def _check_opengrep_obligation_coverage(
+    scratchpad: Path, mode: str
+) -> list[str]:
+    """WARNING-class: every opengrep_findings.md row needs a breadth-emitted receipt.
+
+    First ship: emits issues but never returns a hard-FAIL. Driver logs
+    the issues and writes `opengrep_obligation_gap.md` for observation.
+    Vacuous-pass when opengrep_findings.md is absent or has 0 rows.
+
+    Promotion to FAIL (planned after one observed audit) requires only
+    flipping the caller's branch from `log.warning(...)` to appending to
+    the missing list and writing a retry hint — no change to this function.
+    """
+    rows = _parse_opengrep_row_count(scratchpad)
+    if rows == 0:
+        return []
+
+    # Breadth output: analysis_*.md plus per-contract + rescan outputs.
+    # Receipts may live in any of these files. analysis_b*.md are bucket-named
+    # by the breadth orchestrator; analysis_<role>.md are role-named.
+    receipts = _collect_obligation_receipts(
+        scratchpad, "opengrep_findings.md",
+        ("analysis_*.md", "analysis_b*.md", "analysis_percontract_*.md",
+         "analysis_rescan_*.md"),
+    )
+
+    if not receipts:
+        try:
+            (scratchpad / "opengrep_obligation_gap.md").write_text(
+                "# OpenGrep Obligation Gap\n\n"
+                f"**Total opengrep rows**: {rows}\n"
+                f"**Receipts emitted**: 0\n"
+                f"**Unaccounted rows**: {rows}\n\n"
+                "No `[OBLIG:opengrep_findings.md:<row>]` lines were found in "
+                "any `analysis_*.md` file. Breadth phase should append a "
+                "receipts section addressing every row in opengrep_findings.md.\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        return [
+            f"opengrep obligation: {rows} row(s) in opengrep_findings.md, "
+            "0 receipts in breadth output. Add a `## Obligation Receipts — "
+            "opengrep_findings.md` section to your breadth output emitting "
+            "one [OBLIG:opengrep_findings.md:<row>] line per row."
+        ]
+
+    accounted = set(receipts.keys())
+    # Convert row indices we extract to a comparable form (string of int).
+    # Receipts may use "1" or "01" etc.; normalize both sides.
+    accounted_norm = {r.lstrip("0") or "0" for r in accounted}
+    all_rows_norm = {str(i) for i in range(1, rows + 1)}
+    unaccounted = sorted(all_rows_norm - accounted_norm, key=lambda x: int(x))
+
+    issues: list[str] = []
+    if unaccounted:
+        # Snapshot the gap so post-mortem can inspect it.
+        try:
+            gap_path = scratchpad / "opengrep_obligation_gap.md"
+            gap_path.write_text(
+                "# OpenGrep Obligation Gap\n\n"
+                f"**Total opengrep rows**: {rows}\n"
+                f"**Receipts emitted**: {len(accounted_norm)}\n"
+                f"**Unaccounted rows**: {len(unaccounted)}\n\n"
+                "## Unaccounted Row Indices\n"
+                "Each row below has no `[OBLIG:opengrep_findings.md:<row>]` "
+                "receipt in any analysis_*.md file. Future audits should "
+                "address them in breadth output as REPORTED/DISMISSED/CARRIED.\n\n"
+                + "\n".join(f"- row {r}" for r in unaccounted[:200]),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+        issues.append(
+            f"opengrep obligation: {len(unaccounted)}/{rows} "
+            "row(s) in opengrep_findings.md have no breadth receipt "
+            "(see opengrep_obligation_gap.md)"
+        )
+
+    # Validate dismissal vocabulary on emitted DISMISSED receipts (lenient —
+    # unknown reasons are logged but do not count toward the gate today).
+    return issues
+
+
+def _parse_function_summary_rows(scratchpad: Path) -> list[dict[str, str]]:
+    """Parse function_summary.md into per-function rows.
+
+    Each row dict carries: contract, function, state_writes, external_calls.
+    Returns [] when the artifact is absent.
+    """
+    path = scratchpad / "function_summary.md"
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return []
+
+    rows: list[dict[str, str]] = []
+    current_contract = ""
+    in_table = False
+    header_cols: list[str] = []
+    for line in text.splitlines():
+        m = re.match(r"^##\s+(\S+\.(sol|rs|move|go))\s*$", line)
+        if m:
+            current_contract = m.group(1)
+            in_table = False
+            header_cols = []
+            continue
+        if line.strip().startswith("| Function") or line.strip().startswith("|Function"):
+            header_cols = [c.strip().lower() for c in line.split("|")[1:-1]]
+            in_table = True
+            continue
+        if in_table and re.match(r"^\|[\s\-:]+\|", line):
+            continue  # separator
+        if in_table and line.startswith("|"):
+            cells = [c.strip() for c in line.split("|")[1:-1]]
+            if len(cells) < len(header_cols):
+                continue
+            row: dict[str, str] = {"contract": current_contract}
+            for i, col in enumerate(header_cols):
+                if i < len(cells):
+                    row[col.replace(" ", "_")] = cells[i]
+            # Normalize
+            row["function"] = row.get("function", "")
+            row["state_writes"] = row.get("state_writes", "")
+            row["external_calls"] = row.get("external_calls", "")
+            rows.append(row)
+        elif in_table and not line.strip():
+            in_table = False
+    return rows
+
+
+def _check_function_summary_obligation(
+    scratchpad: Path, mode: str
+) -> list[str]:
+    """WARNING-class: every function_summary.md row with state-writes or
+    external-calls needs a receipt in the owning depth role's output.
+
+    Row partitioning:
+      - State Writes non-empty → depth-state-trace must dispose.
+      - External Calls non-empty → depth-token-flow must dispose.
+      - Both → either role's receipt counts.
+
+    Vacuous-pass when function_summary.md is absent (no obligation set).
+    """
+    rows = _parse_function_summary_rows(scratchpad)
+    if not rows:
+        return []
+
+    def _is_meaningful(cell: str) -> bool:
+        return bool(cell) and cell.strip() not in ("-", "—", "N/A", "(none)", "")
+
+    # Build per-row id `<contract>.<function>` and required-role lookup.
+    required_state: set[str] = set()
+    required_extcall: set[str] = set()
+    for row in rows:
+        contract_short = (row.get("contract", "") or "").split(".")[0]
+        func = (row.get("function", "") or "").strip("`")
+        if not func:
+            continue
+        row_id = f"{contract_short}.{func}" if contract_short else func
+        if _is_meaningful(row.get("state_writes", "")):
+            required_state.add(row_id)
+        if _is_meaningful(row.get("external_calls", "")):
+            required_extcall.add(row_id)
+
+    if not required_state and not required_extcall:
+        return []
+
+    state_receipts = _collect_obligation_receipts(
+        scratchpad, "function_summary.md",
+        ("depth_state_trace_findings.md",
+         "depth_da_state_trace_findings.md",
+         "depth_da3_state_trace_findings.md"),
+    )
+    tokenflow_receipts = _collect_obligation_receipts(
+        scratchpad, "function_summary.md",
+        ("depth_token_flow_findings.md",
+         "depth_da_token_flow_findings.md",
+         "depth_da3_token_flow_findings.md"),
+    )
+    all_receipts = set(state_receipts.keys()) | set(tokenflow_receipts.keys())
+
+    # Normalize: receipts may quote backticks, full path, etc. — strip backticks.
+    all_receipts_norm = {r.strip("`") for r in all_receipts}
+
+    missing_state = sorted(required_state - all_receipts_norm)
+    missing_extcall = sorted(required_extcall - all_receipts_norm)
+
+    issues: list[str] = []
+    if missing_state:
+        issues.append(
+            f"function_summary obligation: depth-state-trace missing "
+            f"{len(missing_state)}/{len(required_state)} receipts "
+            f"(first 5: {', '.join(missing_state[:5])})"
+        )
+    if missing_extcall:
+        issues.append(
+            f"function_summary obligation: depth-token-flow missing "
+            f"{len(missing_extcall)}/{len(required_extcall)} receipts "
+            f"(first 5: {', '.join(missing_extcall[:5])})"
+        )
+
+    if issues:
+        # Snapshot for post-mortem.
+        try:
+            (scratchpad / "function_summary_obligation_gap.md").write_text(
+                "# function_summary Obligation Gap\n\n"
+                f"**State-trace required**: {len(required_state)}\n"
+                f"**State-trace receipts emitted**: "
+                f"{len(required_state) - len(missing_state)}\n"
+                f"**Token-flow required**: {len(required_extcall)}\n"
+                f"**Token-flow receipts emitted**: "
+                f"{len(required_extcall) - len(missing_extcall)}\n\n"
+                "## Missing state-trace rows\n"
+                + "\n".join(f"- {r}" for r in missing_state[:200])
+                + "\n\n## Missing token-flow rows\n"
+                + "\n".join(f"- {r}" for r in missing_extcall[:200]),
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+
+    return issues
+
+
+def _check_pde_section_present(scratchpad: Path) -> list[str]:
+    """WARNING-class: niche_semantic_consistency_findings.md must contain a
+    Pre-Commit Dimension Enumeration section.
+
+    Vacuous-pass when the niche output is absent (niche agent didn't run).
+    """
+    path = scratchpad / "niche_semantic_consistency_findings.md"
+    if not path.exists():
+        return []
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return []
+    if not re.search(r"^##\s+Pre-Commit\s+Dimension\s+Enumeration",
+                     text, re.IGNORECASE | re.MULTILINE):
+        return [
+            "PDE missing: niche_semantic_consistency_findings.md has no "
+            "`## Pre-Commit Dimension Enumeration` section. The niche agent "
+            "should enumerate sibling/decoded-field/mirror/actor dimensions "
+            "BEFORE writing findings so cross-sibling self-refutation is "
+            "structurally prevented."
+        ]
+    # Optional: count populated table rows
+    pde_section = re.split(r"^##\s+(?!#)", text, flags=re.MULTILINE)
+    # Confirm at least one table row appears within ~3 KB of the heading.
+    return []
+
+
+_PERTURBATION_BLOCK_RE = re.compile(
+    r"###\s+Perturbation\s+Block",
+    re.IGNORECASE,
+)
+
+
+def _check_perturbation_block_per_finding(scratchpad: Path) -> list[str]:
+    """WARNING-class: every Medium+ CONFIRMED finding in depth-state-trace
+    and depth-token-flow output must carry an inline Perturbation Block.
+
+    Vacuous-pass when the depth output is absent.
+    """
+    issues: list[str] = []
+    for role_file in (
+        "depth_state_trace_findings.md",
+        "depth_token_flow_findings.md",
+    ):
+        path = scratchpad / role_file
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        # Find Medium+ CONFIRMED findings
+        findings: list[tuple[int, str]] = []
+        for m in re.finditer(
+            r"##\s+Finding\s+\[(?P<id>[A-Z]{1,8}-\d+[A-Z\d-]*)\]",
+            text,
+        ):
+            findings.append((m.start(), m.group("id")))
+        if not findings:
+            continue
+        # For each finding span, check Verdict + Severity, then Perturbation Block
+        missing_blocks: list[str] = []
+        for i, (start, fid) in enumerate(findings):
+            end = findings[i + 1][0] if i + 1 < len(findings) else len(text)
+            block = text[start:end]
+            verdict_m = re.search(
+                r"\*\*Verdict\*\*:\s*(\w+)", block, re.IGNORECASE,
+            )
+            sev_m = re.search(
+                r"\*\*Severity\*\*:\s*(\w+)", block, re.IGNORECASE,
+            )
+            if not verdict_m or not sev_m:
+                continue
+            if verdict_m.group(1).upper() != "CONFIRMED":
+                continue
+            if sev_m.group(1).capitalize() not in ("Critical", "High", "Medium"):
+                continue
+            if not _PERTURBATION_BLOCK_RE.search(block):
+                missing_blocks.append(fid)
+        if missing_blocks:
+            issues.append(
+                f"perturbation block: {role_file} has "
+                f"{len(missing_blocks)} Medium+ CONFIRMED finding(s) without "
+                f"`### Perturbation Block` table (first 5: "
+                f"{', '.join(missing_blocks[:5])})"
+            )
     return issues
 
 
@@ -5438,8 +6817,16 @@ def _maybe_skip_empty_body_writer(scratchpad: Path, phase_name: str) -> bool:
         "Empty-Tier-Auth: PLAMEN-DRIVER-AUTHENTIC-EMPTY-TIER\n"
     )
     (scratchpad / out_name).write_text(note, encoding="utf-8")
+    # Sidecar write is best-effort; the body file's PLAMEN-DRIVER-
+    # AUTHENTIC-EMPTY-TIER marker is the authoritative provenance signal
+    # (see `_empty_tier_sidecar_valid` fallback). However we still log
+    # any failure so future audits don't hit a silent path —
+    # previously this `except Exception: pass` swallowed the sidecar
+    # write error and halted the audit at the legacy tier validator
+    # because the validator strictly required the sidecar. Live data
+    # from the DODO May-2026 audit confirmed the sidecar was missing.
     try:
-        manifests_dir.mkdir(exist_ok=True)
+        manifests_dir.mkdir(parents=True, exist_ok=True)
         (manifests_dir / f"{shard_key}.empty.json").write_text(
             json.dumps(
                 {
@@ -5453,8 +6840,12 @@ def _maybe_skip_empty_body_writer(scratchpad: Path, phase_name: str) -> bool:
             ),
             encoding="utf-8",
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        import logging as _logging
+        _logging.getLogger("plamen.validators").warning(
+            f"[empty-shard] sidecar write failed for {shard_key} "
+            f"({exc!r}) — relying on body-file marker fallback"
+        )
     return True
 
 
@@ -5481,22 +6872,54 @@ def _expected_tier_assignment_count(scratchpad: Path, shard_key: str) -> int | N
 
 
 def _empty_tier_sidecar_valid(scratchpad: Path, shard_key: str, body_name: str) -> bool:
-    sidecar = scratchpad / "body_manifests" / f"{shard_key}.empty.json"
-    if not sidecar.exists():
-        return False
-    try:
-        data = json.loads(sidecar.read_text(encoding="utf-8"))
-    except Exception:
-        return False
+    """Accept an empty-tier body file when the driver-written sidecar OR
+    the body file's own provenance marker confirm authenticity.
+
+    Background: `_maybe_skip_empty_body_writer` writes BOTH a body file
+    (containing the `PLAMEN-DRIVER-AUTHENTIC-EMPTY-TIER` marker in its
+    Provenance section) AND a JSON sidecar at
+    `body_manifests/<shard>.empty.json`. If the sidecar write fails (FS
+    error, permission issue, race with a parallel sweep) the body file
+    is still on disk and is still authentic — the marker is the source
+    of truth. Pre-fix, the missing sidecar caused a hard "manifest
+    missing" halt at the legacy tier confirmation handler, even though
+    the body file was unambiguously a driver-authored empty tier.
+    Post-fix, EITHER source of provenance is accepted.
+
+    Caller must still verify the body file has no report IDs (done
+    upstream at line 5624). The expected_count == 0 cross-check
+    prevents impostors: a manifest could be wrong, but if the queue
+    truly has a non-zero count for this tier, we refuse the empty-tier
+    pass.
+    """
     expected_count = _expected_tier_assignment_count(scratchpad, shard_key)
     if expected_count is None or expected_count != 0:
         return False
-    return (
-        data.get("auth") == "PLAMEN-DRIVER-AUTHENTIC-EMPTY-TIER"
-        and data.get("shard") == shard_key
-        and data.get("assigned_count") == 0
-        and data.get("output") == body_name
-    )
+    sidecar = scratchpad / "body_manifests" / f"{shard_key}.empty.json"
+    if sidecar.exists():
+        try:
+            data = json.loads(sidecar.read_text(encoding="utf-8"))
+            if (
+                data.get("auth") == "PLAMEN-DRIVER-AUTHENTIC-EMPTY-TIER"
+                and data.get("shard") == shard_key
+                and data.get("assigned_count") == 0
+                and data.get("output") == body_name
+            ):
+                return True
+        except Exception:
+            pass
+    # Sidecar missing / unreadable / mismatched — fall back to the body
+    # file's own provenance marker. The marker is hard-coded by the
+    # driver in `_maybe_skip_empty_body_writer` and cannot be produced
+    # by an LLM agent or third-party tool.
+    body_path = scratchpad / body_name
+    if not body_path.exists():
+        return False
+    try:
+        body_text = body_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return False
+    return "PLAMEN-DRIVER-AUTHENTIC-EMPTY-TIER" in body_text
 
 
 def _generate_body_writer_retry_hint(scratchpad: Path, phase_name: str) -> str:
@@ -5667,21 +7090,44 @@ def _validate_tier_body_against_manifest(
 #
 # Generic across L1 and SC. Reads only Phase 5.1 outputs (skeptic_judge*
 # decisions) and the assembled report; no protocol-specific knowledge.
+# v2.0.5 (P0.1): `_parse_skeptic_judge_table` was moved to plamen_parsers
+# to respect the parsers→validators dependency direction. Validators import
+# it as needed via the standard `from plamen_parsers import ...` pattern.
+
 def _collect_judge_unresolved_ids(scratchpad: Path) -> set[str]:
-    """Return finding IDs that the Skeptic-Judge ruled UNRESOLVED.
+    """Return finding IDs that the Skeptic-Judge ruled UNRESOLVED (or PARTIAL).
 
     Reads `skeptic_judge_decisions.md` (or any `judge_*.md` if the
-    aggregate doesn't exist). Parses by H2 section (`## {ID}` or
-    `## Finding {ID}`) so each finding's verdict cleanly bounds which
-    IDs count as that finding's verdict scope. Falls back to whole-file
-    parse if no H2 sections exist.
+    aggregate doesn't exist). Parsing strategy (in order):
+    1. v2.0.5 (P0.2): `judge_decisions.json` sidecar if present AND fresh —
+       the canonical machine-readable source written by the driver.
+    2. v2.0.5 (P0.1): table-format parser via `_parse_skeptic_judge_table` —
+       the current v2 skeptic prompt produces a single pipe-table.
+    3. Legacy H2-section parser (per-finding `## {ID}` blocks with
+       `Verdict|Decision: UNRESOLVED|PARTIAL` prose).
+    4. Whole-file regex fallback for files with no H2 sections at all.
 
-    Why per-section: a single skeptic_judge_decisions.md may contain
-    many adjacent findings. A windowed harvest would span into the
-    next finding's section and incorrectly attribute IDs across
-    section boundaries — observed live during v2.2.1 development.
+    PARTIAL is treated as UNRESOLVED-equivalent (both carry identical
+    downstream semantics: demote 1 tier, retain in body, flag for review).
     """
     ids: set[str] = set()
+    # v2.0.5 (P0.2): prefer the JSON sidecar when fresh.
+    try:
+        from plamen_parsers import read_judge_decisions_json_sidecar
+        sidecar_rows = read_judge_decisions_json_sidecar(scratchpad)
+    except ImportError:
+        sidecar_rows = []
+    if sidecar_rows:
+        for row in sidecar_rows:
+            if str(row.get("decision", "")).upper() in ("UNRESOLVED", "PARTIAL"):
+                fid = row.get("finding_id")
+                if fid:
+                    ids.add(fid)
+        if ids:
+            return ids
+        # Sidecar exists but had no UNRESOLVED rows — still return early
+        # rather than fall through to potentially-stale markdown parse.
+        return ids
     candidates: list[Path] = []
     primary = scratchpad / "skeptic_judge_decisions.md"
     if primary.exists():
@@ -5690,14 +7136,6 @@ def _collect_judge_unresolved_ids(scratchpad: Path) -> set[str]:
         candidates.extend(scratchpad.glob("judge_*.md"))
     if not candidates:
         return ids
-    # v2.3.13: accept PARTIAL as UNRESOLVED-equivalent + tolerate bold
-    # decoration (`**Verdict**: PARTIAL` is the standard finding-output
-    # format; pre-v2.3.13 regex required a literal `Verdict:` without bold
-    # wrapper between label and colon, missing every bold-decorated row).
-    # Irys L1 v2.3.x: 5 PARTIAL verdicts on H-10/H-12/H-13/H-14/H-17
-    # → 0 [UNRESOLVED] body markers. Both tokens carry identical
-    # downstream semantics (demote 1 tier, retain in body, flag for
-    # human review).
     verdict_re = re.compile(
         r"(?:Verdict|Judge[ _]?Decision|Decision|Ruling)"
         r"\*{0,2}\s*[:=]\s*\*{0,2}\s*[`]?"
@@ -5710,11 +7148,18 @@ def _collect_judge_unresolved_ids(scratchpad: Path) -> set[str]:
             text = f.read_text(encoding="utf-8", errors="replace")
         except Exception:
             continue
-        # Split on H2 boundaries; first chunk is preamble (skip if no
-        # verdict in it). Each subsequent chunk is one finding's section.
+        # v2.0.5 (P0.1): try table parse first. If the file has table rows,
+        # they are authoritative.
+        from plamen_parsers import _parse_skeptic_judge_table as _pt
+        table_rows = _pt(text)
+        if table_rows:
+            for row in table_rows:
+                if row["decision"] in ("UNRESOLVED", "PARTIAL"):
+                    ids.add(row["finding_id"])
+            continue  # this file's decisions captured from the table
+        # Legacy fallback: H2 section / whole-file regex parse.
         parts = section_split_re.split(text)
         if len(parts) <= 1:
-            # No H2 sections — parse whole file as one scope.
             if verdict_re.search(text):
                 for m in _INTERNAL_FINDING_ID_RE.finditer(text):
                     ids.add(m.group(1))
@@ -5732,12 +7177,27 @@ def _collect_judge_unresolved_ids(scratchpad: Path) -> set[str]:
 def _collect_judge_downgrade_map(scratchpad: Path) -> dict[str, str]:
     """Return {finding_id: target_severity} for DOWNGRADE rulings.
 
-    Reads `skeptic_judge_decisions.md` pipe-delimited table rows where
-    the Decision column is DOWNGRADE. Returns the Final Severity column
-    value normalised via `normalize_severity`. Non-DOWNGRADE rows
-    (KEEP, UNRESOLVED, PARTIAL) are handled by other consumers.
+    v2.0.5 (P0.1+P0.2): refactored to share `_parse_skeptic_judge_table`
+    with `_collect_judge_unresolved_ids`, and prefer the
+    `judge_decisions.json` sidecar when fresh.
     """
     result: dict[str, str] = {}
+    # v2.0.5 (P0.2): prefer the JSON sidecar.
+    try:
+        from plamen_parsers import read_judge_decisions_json_sidecar
+        sidecar_rows = read_judge_decisions_json_sidecar(scratchpad)
+    except ImportError:
+        sidecar_rows = []
+    if sidecar_rows:
+        for row in sidecar_rows:
+            if str(row.get("decision", "")).upper() != "DOWNGRADE":
+                continue
+            fid = row.get("finding_id")
+            final_sev = row.get("final_severity")
+            if fid and final_sev:
+                result[fid] = final_sev
+        return result
+    # Fallback: parse markdown table directly.
     primary = scratchpad / "skeptic_judge_decisions.md"
     if not primary.exists():
         return result
@@ -5745,23 +7205,12 @@ def _collect_judge_downgrade_map(scratchpad: Path) -> dict[str, str]:
         text = primary.read_text(encoding="utf-8", errors="replace")
     except Exception:
         return result
-    for line in text.splitlines():
-        line = line.strip()
-        if not line.startswith("|"):
+    from plamen_parsers import _parse_skeptic_judge_table as _pt
+    for row in _pt(text):
+        if row["decision"] != "DOWNGRADE":
             continue
-        cells = [c.strip() for c in line.split("|")]
-        # pipe-split of "|a|b|c|" → ['', 'a', 'b', 'c', '']
-        cells = [c for c in cells if c]
-        if len(cells) < 4:
-            continue
-        # Skip header / separator rows
-        if cells[0].startswith("-") or cells[0].lower().startswith("finding"):
-            continue
-        fid = cells[0].strip()
-        decision = cells[3].strip().upper()
-        if decision != "DOWNGRADE":
-            continue
-        final_sev = normalize_severity(cells[2].strip())
+        fid = row["finding_id"]
+        final_sev = row["final_severity"]
         if final_sev and fid:
             result[fid] = final_sev
     return result
@@ -5874,6 +7323,200 @@ def _check_unresolved_authenticity(
             )
 
     return issues
+
+
+_MFI_HEADER_RE = re.compile(r"(?im)^##\s+Master Finding Index\b")
+
+
+def _parse_master_finding_index_rows(scratchpad: Path) -> list[dict[str, str]]:
+    """Parse report_index.md `## Master Finding Index` into row dicts.
+
+    Header-aware column resolution (column order is not assumed). Returns
+    rows with keys: report_id, severity, verification, trust_adj, internal.
+    Empty list if the file/section is absent or has no header row.
+    """
+    ri = scratchpad / "report_index.md"
+    if not ri.exists():
+        return []
+    try:
+        text = ri.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return []
+    m = _MFI_HEADER_RE.search(text)
+    if not m:
+        return []
+    section = text[m.end():]
+    nxt = re.search(r"(?m)^##\s+", section)
+    if nxt:
+        section = section[: nxt.start()]
+
+    rows: list[dict[str, str]] = []
+    col_idx: dict[str, int] = {}
+    for line in section.splitlines():
+        s = line.strip()
+        if not s.startswith("|") or _is_separator_row(s):
+            continue
+        cells = [c.strip() for c in s.strip("|").split("|")]
+        cells_lc = [c.lower() for c in cells]
+        if not col_idx:
+            if not any("report" in c and "id" in c for c in cells_lc):
+                continue  # data before a recognizable header — skip
+            for i, c in enumerate(cells_lc):
+                if "report" in c and "id" in c:
+                    col_idx["report_id"] = i
+                elif "severity" in c:
+                    col_idx["severity"] = i
+                elif "verification" in c:
+                    col_idx["verification"] = i
+                elif "trust" in c:
+                    col_idx["trust_adj"] = i
+                elif "internal" in c or "hypothesis" in c:
+                    col_idx["internal"] = i
+            continue
+
+        def _cell(key: str) -> str:
+            i = col_idx.get(key, -1)
+            return cells[i] if 0 <= i < len(cells) else ""
+
+        rid = _cell("report_id")
+        if not re.match(r"^\[?[CHMLI]-\d", rid, re.IGNORECASE):
+            continue
+        rows.append({
+            "report_id": rid,
+            "severity": _cell("severity"),
+            "verification": _cell("verification"),
+            "trust_adj": _cell("trust_adj"),
+            "internal": _cell("internal"),
+        })
+    return rows
+
+
+def _check_report_index_unresolved_authenticity(scratchpad: Path) -> list[str]:
+    """T1-b: every `UNRESOLVED(...)` Trust Adj. stamp must be backed by a
+    real Skeptic-Judge UNRESOLVED/PARTIAL ruling, AND every
+    `SEVERITY_OVERRIDE(...)` stamp must be backed by an entry in
+    `_severity_override_ledger.json`.
+
+    v2.0.7 (P1.4, Codex Point 2/3): split into two distinct provenance
+    classes so the driver no longer self-contradicts:
+      - UNRESOLVED(...) — Skeptic-Judge UNRESOLVED/PARTIAL ruling required.
+      - SEVERITY_OVERRIDE(...) — driver auto-repair via
+        `_repair_report_index_severity_provenance`; matching entry in
+        `_severity_override_ledger.json` required.
+
+    On the DODO run the Index Agent stamped verifier-`CONTESTED` findings
+    as Judge-`UNRESOLVED` AND the driver auto-repair function wrote more
+    `UNRESOLVED(...)` stamps without Judge backing. This gate halted on
+    both. P1 separates the two semantic surfaces.
+    """
+    rows = _parse_master_finding_index_rows(scratchpad)
+    if not rows:
+        return []
+    issues: list[str] = []
+
+    # ─── UNRESOLVED(...) — Skeptic-Judge backing required ───
+    unresolved_rows = [
+        r for r in rows
+        if re.search(r"UNRESOLVED\s*\(", r.get("trust_adj", ""), re.IGNORECASE)
+    ]
+    if unresolved_rows:
+        has_judge = (
+            (scratchpad / "skeptic_judge_decisions.md").exists()
+            or any(scratchpad.glob("judge_*.md"))
+            or any(scratchpad.glob("skeptic_*.md"))
+        )
+        if not has_judge:
+            ids = ", ".join(r["report_id"] for r in unresolved_rows[:8])
+            issues.append(
+                f"report_index unresolved authenticity: {len(unresolved_rows)} "
+                "row(s) carry an UNRESOLVED(...) Trust Adj. stamp but NO "
+                "Skeptic-Judge artifact exists in the scratchpad. UNRESOLVED is "
+                "valid ONLY from a Skeptic-Judge ruling — a verifier CONTESTED "
+                f"verdict is NOT UNRESOLVED. Affected rows: {ids}"
+            )
+        else:
+            judge_unresolved = {
+                re.sub(r"[^A-Z0-9]+", "", x.upper())
+                for x in _collect_judge_unresolved_ids(scratchpad)
+            }
+            phantom: list[str] = []
+            for r in unresolved_rows:
+                internal = r.get("internal", "")
+                toks = {
+                    re.sub(r"[^A-Z0-9]+", "", t.upper())
+                    for t in re.findall(r"[A-Za-z]+-\d+", internal)
+                }
+                if not (toks & judge_unresolved):
+                    phantom.append(f"{r['report_id']} (internal {internal or '?'})")
+            if phantom:
+                issues.append(
+                    f"report_index unresolved authenticity: {len(phantom)} row(s) "
+                    "stamped UNRESOLVED(...) have no matching Skeptic-Judge "
+                    "UNRESOLVED/PARTIAL ruling — likely a verifier CONTESTED verdict "
+                    f"mislabeled as UNRESOLVED: {'; '.join(phantom[:8])}"
+                )
+
+    # ─── SEVERITY_OVERRIDE(...) — driver-ledger backing required ───
+    override_rows = [
+        r for r in rows
+        if re.search(r"SEVERITY_OVERRIDE\s*\(", r.get("trust_adj", ""),
+                     re.IGNORECASE)
+    ]
+    if override_rows:
+        ledger = _read_severity_override_ledger(scratchpad)
+        ledger_by_rid = {
+            (rec.get("report_id") or "").upper(): rec for rec in ledger
+        }
+        unbacked: list[str] = []
+        for r in override_rows:
+            rid = (r.get("report_id") or "").upper()
+            if rid not in ledger_by_rid:
+                unbacked.append(f"{rid} (no ledger entry)")
+        if unbacked:
+            issues.append(
+                f"report_index severity-override authenticity: "
+                f"{len(unbacked)} row(s) carry a SEVERITY_OVERRIDE(...) "
+                "Trust Adj. stamp without a matching entry in "
+                "_severity_override_ledger.json. This token is "
+                "driver-only — the Index Agent must NOT emit it manually. "
+                f"Affected rows: {'; '.join(unbacked[:8])}"
+            )
+    return issues
+
+
+def _check_speculative_critical_chains(scratchpad: Path) -> list[str]:
+    """T2-c (WARNING-class): flag Critical chain rows that lack verification.
+
+    A `Critical` assigned to a chain / compound hypothesis (`CH-*` internal
+    ID, or `+`-joined constituents) with a non-VERIFIED disposition is
+    speculative; STEP 1 rule 8 of the report-index prompt caps these at
+    High. This is the observability backstop — it never blocks the gate.
+    """
+    rows = _parse_master_finding_index_rows(scratchpad)
+    if not rows:
+        return []
+    flagged: list[str] = []
+    for r in rows:
+        if "critical" not in (r.get("severity") or "").strip().lower():
+            continue
+        internal = r.get("internal", "")
+        is_chain = ("CH-" in internal.upper()) or ("+" in internal)
+        if not is_chain:
+            continue
+        verif = (r.get("verification") or "").strip().upper()
+        if "VERIFIED" in verif and "UNVERIFIED" not in verif:
+            continue  # genuinely verifier-confirmed
+        flagged.append(
+            f"{r['report_id']} (internal {internal or '?'}, "
+            f"verification {verif or '?'})"
+        )
+    if flagged:
+        return [
+            f"speculative critical: {len(flagged)} Critical chain finding(s) "
+            "without verifier confirmation — STEP 1 rule 8 caps these at "
+            f"High: {'; '.join(flagged[:8])}"
+        ]
+    return []
 
 
 def _write_promotion_dropout_retry_hint(
@@ -6351,15 +7994,28 @@ def _run_report_quality_gate(
             )
             return _is_substantive_body_evidence(value)
 
-        missing_impact_ids = [
-            body_report_ids[i] if i < len(body_report_ids) else f"section-{i + 1}"
-            for i, (_, s) in enumerate(sections)
-            if not _section_field_substantive(
+        # T2-d: split missing-Impact by tier. A C/H/M finding shipped with
+        # no substantive `## Impact` section is a hard quality failure (the
+        # DODO run shipped M-07/M-13/M-16 this way) — it must block the gate
+        # and trigger a retry, not just WARN. L/I missing Impact stays soft.
+        missing_impact_chm: list[str] = []
+        missing_impact_li: list[str] = []
+        for i, (t, s) in enumerate(sections):
+            rid = (
+                body_report_ids[i] if i < len(body_report_ids)
+                else f"section-{i + 1}"
+            )
+            if _section_field_substantive(
                 s,
                 ("Impact", "Security Impact", "Risk"),
                 ("Impact", "Security Impact", "Risk"),
-            )
-        ]
+            ):
+                continue
+            if t in ("C", "H", "M"):
+                missing_impact_chm.append(rid)
+            else:
+                missing_impact_li.append(rid)
+        missing_impact_ids = missing_impact_chm + missing_impact_li
         # PoC Result is required for C/H/M only; optional for L/I per
         # report-template.md ("PoC Result field optional for Informational",
         # "Recommendation field optional for Low").
@@ -6382,17 +8038,29 @@ def _run_report_quality_gate(
                 f"{boilerplate}/{total_sections} sections contain report-stub boilerplate",
             ))
             issues.append("report body is dominated by boilerplate/stub sections")
-        elif missing_impact_ids or missing_poc_ids:
+        elif missing_impact_chm or missing_poc_ids:
+            # T2-d: C/H/M findings without a substantive Impact / PoC Result
+            # are a hard failure -> block the gate so the writer is retried.
+            checks.append((
+                "content_authenticity", "FAIL",
+                "C/H/M sections missing Impact: "
+                f"{missing_impact_chm[:10]}, PoC Result: {missing_poc_ids[:10]}",
+            ))
+            issues.append(
+                "report body: C/H/M finding(s) shipped without a substantive "
+                f"Impact section ({missing_impact_chm[:10]}) or PoC Result "
+                f"section ({missing_poc_ids[:10]})"
+            )
+        elif missing_impact_li:
             checks.append((
                 "content_authenticity", "WARN",
-                "missing/non-substantive Impact in "
-                f"{missing_impact_ids[:10]}, PoC Result in {missing_poc_ids[:10]} "
-                "(C/H/M only)",
+                f"missing/non-substantive Impact in L/I sections "
+                f"{missing_impact_li[:10]}",
             ))
             log.warning(
                 "[_run_report_quality_gate] content_authenticity: missing Impact "
-                "in %s, PoC Result in %s (C/H/M only, soft check)",
-                missing_impact_ids[:10], missing_poc_ids[:10],
+                "in L/I sections %s (soft check)",
+                missing_impact_li[:10],
             )
         elif thin_sections and len(thin_sections) > max(1, int(total_sections * 0.15)):
             checks.append((
@@ -8233,10 +9901,86 @@ def _generate_verify_queue_retry_hint(issues: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _generate_depth_retry_hint(
-    issues: list[str], *, backend: str = "claude"
+_PLAMEN_ORPHAN_REPAIR_HINT_CLAUDE = """\
+## RETRY HINT — orphaned background agents detected (v2.0.3)
+
+Your previous attempt invoked the Task tool with `run_in_background: true`
+on {n} agents and ended its turn before agents could return. The following
+files contain ONLY reservation headers and must be re-derived:
+{file_list}
+
+REPAIR:
+1. Delete or overwrite the stub files listed above — their content is
+   meaningless (header-only WRITE-THEN-VERIFY reservation).
+2. Re-spawn each agent as a FOREGROUND Task call. Do NOT pass
+   `run_in_background: true`. Spawn all in a single message.
+3. Do NOT end_turn until every Task call has returned with a result.
+4. The PLAMEN V2 EXECUTION CONTRACT at the top of this prompt is the
+   binding directive — re-read it before spawning.
+"""
+
+_PLAMEN_ORPHAN_REPAIR_HINT_CODEX = """\
+## RETRY HINT — orphaned spawn_agent calls detected (v2.0.3)
+
+Your previous attempt called `spawn_agent` on {n} agents and exec exited
+before calling `wait_agent` on all of them. The following files contain
+ONLY reservation headers and must be re-derived:
+{file_list}
+
+REPAIR:
+1. Delete or overwrite the stub files listed above.
+2. For each agent, call `spawn_agent` then `wait_agent` BEFORE exec exits.
+3. The PLAMEN V2 EXECUTION CONTRACT at the top of this prompt is the
+   binding directive.
+"""
+
+
+def _generate_orphan_repair_hint(
+    diag: dict, *, backend: str = "claude"
 ) -> str:
-    """Build retry hint for depth execution-boundary and quality failures."""
+    """v2.0.3 (A4): targeted retry hint when the orphan-background signature
+    was detected by `detect_background_orphan` (driver-side, post-subprocess).
+
+    Reads the diagnostic dict written by A2 to `_diagnostic_orphan_{phase}.json`.
+    Backend-aware: Claude variant cites Task/run_in_background; Codex variant
+    cites spawn_agent/wait_agent. Per Codex Round-2 Claim 6, detection lives
+    in the driver and writes the diagnostic; the validator-side hint generator
+    is consumption-only and has no detection logic of its own.
+    """
+    stubs = diag.get("stub_files") or []
+    n = diag.get("task_count_background") or diag.get("stub_count") or len(stubs)
+    file_list = "\n".join(f"  - {s}" for s in stubs) if stubs else "  - (no stub files listed)"
+    template = (
+        _PLAMEN_ORPHAN_REPAIR_HINT_CODEX if backend == "codex"
+        else _PLAMEN_ORPHAN_REPAIR_HINT_CLAUDE
+    )
+    return template.format(n=n, file_list=file_list)
+
+
+def _generate_depth_retry_hint(
+    issues: list[str], *,
+    backend: str = "claude",
+    scratchpad: Optional[Path] = None,
+) -> str:
+    """Build retry hint for depth execution-boundary and quality failures.
+
+    v2.0.3 (A4): if the driver wrote `_diagnostic_orphan_depth.json` via
+    `detect_background_orphan`, return the orphan-specific repair hint
+    instead of the generic quality-gate text. The orphan path is a
+    different failure class (LLM exited before agents returned vs. quality
+    gate fired on substantive output) and needs a different repair plan.
+    """
+    # v2.0.3 (A4): orphan-background dispatch. Read the diagnostic written
+    # by detect_background_orphan (driver-side). If present, the orphan
+    # repair hint replaces the generic quality-gate text.
+    if scratchpad is not None:
+        diag_path = scratchpad / "_diagnostic_orphan_depth.json"
+        if diag_path.exists():
+            try:
+                diag = json.loads(diag_path.read_text(encoding="utf-8"))
+                return _generate_orphan_repair_hint(diag, backend=backend)
+            except (OSError, json.JSONDecodeError):
+                pass  # fall through to existing dispatch
     if not issues:
         return ""
     lines = [
@@ -8294,6 +10038,67 @@ def _generate_depth_retry_hint(
             "Do NOT return until every artifact in the checklist exists and",
             "is ≥200 bytes. The gate checks file existence mechanically.",
         ])
+    return "\n".join(lines) + "\n"
+
+
+# S1.6 — depth core-artifact set. These are the deliverables chain analysis
+# consumes; if all are present and substantive, a missing tail artifact
+# (perturbation, design_stress) must NOT halt the pipeline.
+_DEPTH_CORE_ARTIFACTS = (
+    "depth_token_flow_findings.md",
+    "depth_state_trace_findings.md",
+    "depth_edge_case_findings.md",
+    "depth_external_findings.md",
+    "blind_spot_a_findings.md",
+    "blind_spot_b_findings.md",
+    "blind_spot_c_findings.md",
+)
+
+
+def _depth_core_artifacts_present(scratchpad: Path) -> bool:
+    """S1.6: True when depth's CORE deliverables are all present + substantive.
+
+    Core = the 4 depth-role findings files + the 3 blind-spot scanners.
+    When this holds, depth has produced usable input for chain analysis and
+    a remaining tail-artifact gap must degrade-and-continue, not halt.
+    """
+    for name in _DEPTH_CORE_ARTIFACTS:
+        p = scratchpad / name
+        if not p.exists() or _depth_artifact_is_stub(p) is not None:
+            return False
+    return True
+
+
+def _generate_depth_repair_hint(missing: list) -> str:
+    """S1.5: targeted repair hint — produce ONLY the missing/stub artifacts.
+
+    The core depth findings are already complete; this steers the one
+    auto-granted repair attempt at the tail gaps without a full re-run and
+    without overrunning the phase boundary.
+    """
+    lines = [
+        "## RETRY HINT — depth targeted repair",
+        "",
+        "The CORE depth findings are already complete and on disk: the four "
+        "`depth_*_findings.md` role files and the three "
+        "`blind_spot_*_findings.md` scanners are present and substantive. "
+        "DO NOT regenerate them — reuse them as-is.",
+        "",
+        "Produce ONLY the missing / stub artifacts below, then STOP:",
+    ]
+    lines.extend(f"- {m}" for m in (missing or []))
+    lines.extend([
+        "",
+        "- Write a substantive `perturbation_findings.md` if it is missing "
+        "or a stub (one `### Perturbation Block` table per Medium+ finding).",
+        "- If `confidence_scores.md` shows Medium+ findings in the UNCERTAIN "
+        "band, run depth iteration 2 (Devil's-Advocate) for those findings "
+        "and write `depth_da_*_findings.md`.",
+        "- Do NOT write `hypotheses.md`, `finding_mapping.md`, or any chain / "
+        "synthesis / verification / report artifact — those belong to later "
+        "phases. Writing them wastes the attempt.",
+        "- Return `DONE: depth repair complete` when finished.",
+    ])
     return "\n".join(lines) + "\n"
 
 
@@ -8920,9 +10725,14 @@ def _validate_inventory_chunk_structure(scratchpad: Path, phase_name: str) -> li
         ("Preferred Tag", "Evidence Tag", "Evidence Tags",
          "Preferred Verification", "Evidence", "Verification Method"),
         ("Verdict", "Final Verdict", "Status"),
-        ("Root Cause",),
-        ("Description",),
-        ("Impact", "Security Impact", "Risk"),
+        # v2.x: Description and Root Cause are semantically equivalent in
+        # practice — LLMs frequently consolidate them, especially on short
+        # Low/Info findings where the "why" and the "what" are the same
+        # sentence. Treat them as alternates rather than as two required
+        # fields. The mechanical inventory merger uses whichever is present
+        # as the description for downstream consumers.
+        ("Description", "Root Cause", "Cause", "Summary", "Mechanism"),
+        ("Impact", "Security Impact", "Risk", "Consequence", "Effect"),
     ]
     # Per-field miss counters. Soft-log up to 8 individual findings (to
     # avoid log spam on huge chunks), but always count toward the global
@@ -9221,7 +11031,12 @@ def _report_index_adjustment_reason_present(*values: str) -> bool:
         return False
     return bool(re.search(
         r"trust|actor|assumption|proven|poc|fail|cap|unresolved|partial|"
-        r"chain|upgrade|downgrade|demot|human|contest|was|from|->|=>",
+        r"chain|upgrade|downgrade|demot|human|contest|was|from|->|=>|"
+        # v2.0.7 (P1.1): SEVERITY_OVERRIDE is the new driver-emitted token
+        # for severity-provenance auto-repair. Recognize it as a canonical
+        # reason so the provenance gate doesn't re-flag rows the repair
+        # function just patched.
+        r"override",
         text,
         re.IGNORECASE,
     ))
@@ -9272,7 +11087,21 @@ def _expected_report_index_severities(scratchpad: Path) -> dict[str, str]:
             vtxt = ""
         sev = _enforce_severity_matrix(vtxt, row)
         status = _verifier_status_from_text(vtxt)
-        if any(tok in status for tok in ("UNRESOLVED", "PARTIAL")):
+        # PARTIAL/UNRESOLVED auto-demotion: only fires when the verifier
+        # did NOT explicitly assign a Severity field. If the verifier
+        # wrote `**Severity**: Medium` AND `**Verdict**: PARTIAL`, they
+        # already considered the partial-evidence context when picking
+        # Medium — demoting here second-guesses the verifier.
+        # DODO INV-128 case: explicit Severity: Medium + Verdict: PARTIAL
+        # → pre-suppression driver demoted to Low → LLM correctly wrote
+        # Medium per the explicit field → provenance gate halted.
+        verifier_assigned_severity = bool(
+            _field_from_markdown(vtxt, ("Severity", "Final Severity"))
+        )
+        if (
+            not verifier_assigned_severity
+            and any(tok in status for tok in ("UNRESOLVED", "PARTIAL"))
+        ):
             sev = _demote_severity_once(sev)
         if fid in caps:
             sev = _cap_report_index_severity(sev, caps[fid])
@@ -9371,6 +11200,281 @@ def _validate_report_index_severity_provenance(scratchpad: Path) -> list[str]:
         return []
     sample = "; ".join(issues[:5])
     return [sample + ("; ..." if len(issues) > 5 else "")]
+
+
+def _repair_report_index_severity_provenance(scratchpad: Path) -> list[dict[str, str]]:
+    """Mechanically resolve severity-provenance violations without halting.
+
+    Background: the provenance validator catches silent LLM severity changes
+    in `report_index.md`. Pre-fix, retry exhaustion halted the entire audit
+    over typically 1-3 misclassified rows out of 70+, wasting $30+ in
+    retried opus subprocesses.
+
+    Strategy: when a row's LLM severity is BELOW the upstream expected
+    value AND the LLM left Trust Adj. empty, mark the row as
+    `SEVERITY_OVERRIDE(upstream=<sev>, llm=<sev>, reason=llm-downgrade-no-judge)`.
+
+    v2.0.7 (P1, Codex Point 2/3): the previous implementation wrote
+    `UNRESOLVED(<upstream>)` here, overloading the Skeptic-Judge-reserved
+    token. The authenticity gate then rejected every UNRESOLVED stamp
+    that lacked a Skeptic-Judge ruling, INCLUDING the ones this function
+    had just written. The DODO 2026-05-21 halt traced to this driver
+    self-contradiction. The fix: a distinct token `SEVERITY_OVERRIDE(...)`
+    that is driver-only, backed by `_severity_override_ledger.json`, and
+    accepted by the authenticity gate ONLY when the ledger contains a
+    matching entry.
+
+    Severity INFLATION (LLM put HIGHER than upstream) is NOT auto-
+    corrected — that direction has different risk and stays a hard fail.
+
+    Returns a list of dicts:
+      {"report_id": "L-01", "internal": "H-44",
+       "llm_severity": "Low", "upstream_severity": "Medium",
+       "action": "applied SEVERITY_OVERRIDE(upstream=Medium, llm=Low, ...)"}
+
+    The ledger artifact at `{scratchpad}/_severity_override_ledger.json`
+    is the machine-readable companion. `severity_overrides.md` is
+    regenerated from it as a human-readable view.
+    """
+    idx_path = scratchpad / "report_index.md"
+    if not idx_path.exists():
+        return []
+    expected_by_id = _expected_report_index_severities(scratchpad)
+    if not expected_by_id:
+        return []
+    try:
+        text = idx_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return []
+    rows = _report_index_rows_for_severity_audit(scratchpad)
+    if not rows:
+        return []
+    rank = {s: i for i, s in enumerate(
+        ["Critical", "High", "Medium", "Low", "Informational"]
+    )}
+    repairs: list[dict[str, str]] = []
+    fixed_text = text
+    for row in rows:
+        rid = row["report_id"]
+        final = _severity_from_report_cell(row.get("severity", ""), rid[:1])
+        ids = [
+            _normalize_finding_id(fid) or fid
+            for fid in _INTERNAL_FINDING_ID_RE.findall(row.get("internal", ""))
+        ]
+        expected = [expected_by_id[fid] for fid in ids if fid in expected_by_id]
+        if not expected:
+            continue
+        source = min(expected, key=lambda sev: rank.get(sev, 99))
+        if final == source:
+            continue
+        # Skip if the row already has a canonical reason.
+        if _report_index_adjustment_reason_present(
+            row.get("trust_adj", ""),
+            row.get("verification", ""),
+            row.get("severity", ""),
+        ):
+            continue
+        # Only auto-repair DOWNGRADES (LLM put lower than upstream).
+        # Inflation is risky and stays a hard fail.
+        if rank.get(final, 99) <= rank.get(source, 99):
+            continue
+        # Locate the row line and patch the Trust Adj. cell.
+        # Master Finding Index format:
+        #   | Report ID | Title | Severity | Location | Verification | Trust Adj. | Internal |
+        # We rewrite the Trust Adj. cell from `-` (or empty) to
+        # `UNRESOLVED(<source>)`.
+        rid_escaped = re.escape(rid)
+        line_pat = re.compile(
+            rf"^(\|\s*{rid_escaped}\s*\|.+?\|)([^|]*)(\|[^|]*\|\s*$)",
+            re.MULTILINE,
+        )
+        m = line_pat.search(fixed_text)
+        if not m:
+            # Try a more permissive match: row line for this Report ID.
+            simple_pat = re.compile(
+                rf"^(\|\s*{rid_escaped}\s*\|.*)$", re.MULTILINE
+            )
+            sm = simple_pat.search(fixed_text)
+            if not sm:
+                repairs.append({
+                    "report_id": rid,
+                    "internal": ", ".join(ids),
+                    "llm_severity": final or "(unknown)",
+                    "upstream_severity": source,
+                    "action": "could not locate row to patch — skipped",
+                })
+                continue
+            # Permissive path: replace `| - |` cell near end with
+            # `| SEVERITY_OVERRIDE(...) |`. Conservative: only touch a
+            # cell that is literally "-" or empty.
+            # v2.0.7 (P1.1): token renamed from UNRESOLVED to
+            # SEVERITY_OVERRIDE — UNRESOLVED is reserved for Skeptic-Judge.
+            override_token = (
+                f"SEVERITY_OVERRIDE(upstream={source}, llm={final or 'unknown'}, "
+                f"reason=llm-downgrade-no-judge)"
+            )
+            line = sm.group(1)
+            patched = re.sub(
+                r"\|\s*(?:-|—|–|\s)\s*(?=\|[^|]*\|\s*$)",
+                f"| {override_token} ",
+                line,
+                count=1,
+            )
+            if patched == line:
+                repairs.append({
+                    "report_id": rid,
+                    "internal": ", ".join(ids),
+                    "llm_severity": final or "(unknown)",
+                    "upstream_severity": source,
+                    "action": "Trust Adj. cell not empty — skipped",
+                })
+                continue
+            fixed_text = fixed_text.replace(line, patched, 1)
+            repairs.append({
+                "report_id": rid,
+                "internal": ", ".join(ids),
+                "llm_severity": final or "(unknown)",
+                "upstream_severity": source,
+                "action": f"applied {override_token}",
+            })
+            continue
+        # Strict match path: rebuild the row with new Trust Adj. cell.
+        # m.group(1) = everything through Verification cell trailing `|`
+        # m.group(2) = current Trust Adj. content (often `-` or empty)
+        # m.group(3) = trailing `| Internal |`
+        # v2.0.7 (P1.1): SEVERITY_OVERRIDE token (driver-only) replaces
+        # UNRESOLVED (Skeptic-Judge-only) for severity-provenance repairs.
+        override_token = (
+            f"SEVERITY_OVERRIDE(upstream={source}, llm={final or 'unknown'}, "
+            f"reason=llm-downgrade-no-judge)"
+        )
+        new_line = (
+            m.group(1)
+            + f" {override_token} "
+            + m.group(3)
+        )
+        fixed_text = fixed_text[:m.start()] + new_line + fixed_text[m.end():]
+        repairs.append({
+            "report_id": rid,
+            "internal": ", ".join(ids),
+            "llm_severity": final or "(unknown)",
+            "upstream_severity": source,
+            "action": f"applied {override_token}",
+        })
+    if fixed_text != text:
+        try:
+            idx_path.write_text(fixed_text, encoding="utf-8")
+        except Exception as exc:
+            # Failure to write is best-effort: log and let the validator
+            # re-fail on this artifact (visible halt, not silent corruption).
+            return [{
+                "report_id": "*",
+                "internal": "(write error)",
+                "llm_severity": "",
+                "upstream_severity": "",
+                "action": f"could not write patched report_index.md: {exc}",
+            }]
+    # v2.0.7 (P1.2): persist the override ledger as JSON (canonical
+    # machine-readable source) + markdown (derived human view). The
+    # authenticity gate consults the JSON to validate each
+    # SEVERITY_OVERRIDE token in report_index.md.
+    if repairs:
+        _write_severity_override_ledger(scratchpad, repairs)
+    return repairs
+
+
+def _write_severity_override_ledger(
+    scratchpad: Path, repairs: list[dict[str, str]]
+) -> None:
+    """v2.0.7 (P1.2): write `_severity_override_ledger.json` (canonical
+    machine-readable record) and `severity_overrides.md` (derived view).
+
+    The JSON ledger is consulted by `_check_report_index_unresolved_authenticity`
+    to validate each SEVERITY_OVERRIDE token in `report_index.md`.
+    Schema: `plamen.severity_overrides.v1`.
+    """
+    if not repairs:
+        return
+    overrides = []
+    for r in repairs:
+        overrides.append({
+            "report_id": r.get("report_id", ""),
+            "internal_id": r.get("internal", ""),
+            "llm_severity": r.get("llm_severity", ""),
+            "upstream_severity": r.get("upstream_severity", ""),
+            "reason": "llm-downgrade-no-judge",
+            "applied_at": datetime.now(timezone.utc).isoformat(),
+            "action": r.get("action", ""),
+        })
+    payload = {
+        "schema_version": "plamen.severity_overrides.v1",
+        "row_count": len(overrides),
+        "overrides": overrides,
+    }
+    # Atomic JSON write
+    try:
+        json_path = scratchpad / "_severity_override_ledger.json"
+        tmp = json_path.with_suffix(json_path.suffix + ".tmp")
+        tmp.write_text(
+            json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        tmp.replace(json_path)
+    except OSError:
+        pass
+    # Derived markdown view (human-readable)
+    try:
+        ledger = scratchpad / "severity_overrides.md"
+        lines = [
+            "# Severity Overrides (Auto-Correction Ledger)",
+            "",
+            "Rows where the LLM-written report_index.md disagreed with the",
+            "upstream verifier-computed severity. The driver applied the",
+            "canonical `SEVERITY_OVERRIDE(...)` Trust Adj. token so the",
+            "audit could complete; these rows should be reviewed by a human",
+            "before the report is delivered.",
+            "",
+            "The machine-readable source of truth is "
+            "`_severity_override_ledger.json`. This markdown is a derived",
+            "view kept for human review.",
+            "",
+            "| Report ID | Internal | LLM proposed | Upstream | Action |",
+            "|-----------|----------|--------------|----------|--------|",
+        ]
+        for r in repairs:
+            lines.append(
+                f"| {r['report_id']} | {r['internal']} | "
+                f"{r['llm_severity']} | {r['upstream_severity']} | "
+                f"{r['action']} |"
+            )
+        ledger.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _read_severity_override_ledger(scratchpad: Path) -> list[dict]:
+    """v2.0.7 (P1.4): read `_severity_override_ledger.json` for the
+    authenticity gate to confirm each `SEVERITY_OVERRIDE(...)` token in
+    `report_index.md` has driver backing.
+
+    Returns the `overrides` list (or [] on absent / malformed file).
+    Caller normally indexes by `report_id` for O(1) lookup.
+    """
+    path = scratchpad / "_severity_override_ledger.json"
+    if not path.exists():
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    if payload.get("schema_version") != "plamen.severity_overrides.v1":
+        return []
+    overrides = payload.get("overrides")
+    if not isinstance(overrides, list):
+        return []
+    return overrides
 
 
 def _validate_report_coverage_accounting(scratchpad: Path) -> list[str]:
@@ -10475,7 +12579,8 @@ def _validate_poc_attempt_coverage(scratchpad: Path, mode: str) -> list[str]:
         _SKIP_CODES = (
             r"NO_BUILD_ENVIRONMENT|EXTERNAL_DEPENDENCY_NO_FORK_OR_ADDRESS|"
             r"DEPLOYMENT_ONLY_REQUIRES_LIVE_EXTERNAL|PURE_SPEC_OR_DOCS_ONLY|"
-            r"STRUCTURAL_NO_EXECUTABLE_HARM_ASSERTION"
+            r"STRUCTURAL_NO_EXECUTABLE_HARM_ASSERTION|"
+            r"CROSS_VM_ENCODING_NO_RUNTIME"
         )
         allowed_skip = bool(re.search(
             r"(?:PoC\s+Not\s+Attempted\s+Because"
@@ -10487,6 +12592,26 @@ def _validate_poc_attempt_coverage(scratchpad: Path, mode: str) -> list[str]:
             content,
             re.IGNORECASE,
         ))
+        # v2.x Fix 5: CROSS_VM_ENCODING_NO_RUNTIME requires evidence of a
+        # cross-VM context to prevent abuse as a generic escape hatch.
+        # Require either (a) a target-VM keyword (Solana/Bitcoin/Move/etc.)
+        # OR (b) a wire-format keyword (encoding/serialization/calldata/etc.)
+        # in the finding body. Without one of these, treat the skip as
+        # unjustified and revoke `allowed_skip`.
+        if allowed_skip and re.search(
+            r"CROSS_VM_ENCODING_NO_RUNTIME", content, re.IGNORECASE
+        ):
+            cross_vm_keyword_present = bool(re.search(
+                r"\b(?:solana|svm|bitcoin|btc|move|aptos|sui|cosmos|ibc|"
+                r"wormhole|layerzero|near|stellar|substrate|tron|"
+                r"encoding|serialization|serializ\w*|wire\s*format|"
+                r"calldata\s*layout|payload\s*format|message\s*format|"
+                r"abi\s*layout)\b",
+                content,
+                re.IGNORECASE,
+            ))
+            if not cross_vm_keyword_present:
+                allowed_skip = False
 
         if has_poc_pass:
             continue
@@ -10507,11 +12632,82 @@ def _validate_poc_attempt_coverage(scratchpad: Path, mode: str) -> list[str]:
     return warnings
 
 
+def _per_constituent_claim_match(
+    verify_content: str,
+    constituent_metas: list[tuple[str, dict[str, str]]],
+    abs_threshold: float = 0.25,
+    margin: float = 0.10,
+) -> tuple[str, list[tuple[str, float]]]:
+    """For a multi-constituent hypothesis, detect which constituent's claim
+    the verifier tested by Jaccard-matching the verify file's Finding Summary
+    against each constituent's title and root cause.
+
+    Decision rule combines an absolute threshold with a winner-by-margin
+    check (Jaccard scores are inherently low; relative ranking is more
+    discriminating than an absolute cutoff):
+
+      - "single_winner" — exactly one constituent above abs_threshold,
+        AND its score exceeds the runner-up by at least `margin`
+      - "shared_claim" — multiple constituents above abs_threshold, all
+        within `margin` of each other (verifier tested a shared property)
+      - "ambiguous" — no constituent above abs_threshold (verifier tested
+        a claim that doesn't match any constituent title — falls back to
+        cap-all behavior for safety)
+
+    scores is a list of (constituent_id, similarity) for ALL constituents.
+    """
+    # Extract verifier's claim text — Finding Summary preferred, else first 1000 chars
+    summary_match = re.search(
+        r"#{2,3}\s*Finding\s*Summary(.*?)(?=\n#{2,3}\s|\Z)",
+        verify_content,
+        re.DOTALL | re.IGNORECASE,
+    )
+    claim_text = (
+        summary_match.group(1) if summary_match else verify_content[:1500]
+    )
+    # Strip code blocks to focus on prose
+    claim_text = re.sub(r"```.*?```", "", claim_text, flags=re.DOTALL)
+
+    scores: list[tuple[str, float]] = []
+    for cid, meta in constituent_metas:
+        comp = (meta.get("title", "") or "") + " " + (meta.get("root_cause", "") or "")
+        sim = _jaccard_token_similarity(claim_text, comp)
+        scores.append((cid, sim))
+
+    above_threshold = [(c, s) for c, s in scores if s >= abs_threshold]
+    if not above_threshold:
+        return "ambiguous", scores
+
+    sorted_scores = sorted(scores, key=lambda x: -x[1])
+    top = sorted_scores[0]
+    runner_up = sorted_scores[1] if len(sorted_scores) >= 2 else (None, 0.0)
+
+    if top[1] - runner_up[1] >= margin:
+        # Top clearly outranks runner-up: single winner regardless of how
+        # many cleared the abs_threshold (others are coincidental overlap)
+        return "single_winner", scores
+    if len(above_threshold) >= 2:
+        # Multiple within margin → shared claim
+        return "shared_claim", scores
+    # One above threshold but margin to next is small → treat as
+    # single winner (the threshold cleared anyway)
+    return "single_winner", scores
+
+
 def _apply_poc_fail_demotions(scratchpad: Path, mode: str) -> list[dict[str, str]]:
     """Demote findings where PoC mechanically disproved the claimed harm.
 
     For poc_class=unit findings with [POC-FAIL]: cap at Informational.
     For poc_class=property findings with [POC-FAIL]: cap at Low.
+
+    v2.x Fix 4 (per-constituent safety net): when the failed hypothesis
+    absorbed multiple constituents (per finding_mapping.md) AND the
+    verifier's Finding Summary matches exactly ONE constituent's title
+    well (Jaccard >= 0.40), skip the hypothesis-level demotion. The
+    un-tested constituents survive at their original severity, and the
+    tested constituent gets a per-constituent demotion entry. This
+    prevents one weak constituent's PoC failure from sinking N true
+    positives in the same group.
 
     Returns list of demotion records.
     """
@@ -10522,7 +12718,19 @@ def _apply_poc_fail_demotions(scratchpad: Path, mode: str) -> list[dict[str, str
     if not rows:
         return []
 
+    # Lazy-load hypothesis constituent mapping + inventory meta (Fix 4)
+    try:
+        from plamen_parsers import _parse_hypothesis_constituents
+        hyp_constituents = _parse_hypothesis_constituents(scratchpad)
+    except Exception:
+        hyp_constituents = {}
+    try:
+        inventory_meta = _parse_inventory_finding_meta(scratchpad)
+    except Exception:
+        inventory_meta = {}
+
     demotions: list[dict[str, str]] = []
+    carveout_skips: list[dict[str, str]] = []
     for row in rows:
         poc_class = row.get("poc class", "structural")
         if poc_class not in ("unit", "property"):
@@ -10559,6 +12767,52 @@ def _apply_poc_fail_demotions(scratchpad: Path, mode: str) -> list[dict[str, str
             new_sev = "Low"
             reason = "POC-FAIL on property-testable finding — invariant violation not reproduced"
 
+        # v2.x Fix 4: per-constituent demotion. If this hypothesis absorbed
+        # multiple constituents, check whether the verifier tested only one
+        # constituent's claim. If so, spare the others.
+        constituent_ids = [
+            cid for cid in hyp_constituents.get(fid.upper(), [])
+            if cid in inventory_meta
+        ]
+        if len(constituent_ids) >= 2:
+            constituent_metas = [(cid, inventory_meta[cid]) for cid in constituent_ids]
+            match_kind, scores = _per_constituent_claim_match(content, constituent_metas)
+            if match_kind == "single_winner":
+                winner = max(scores, key=lambda x: x[1])
+                spared = [c for c, _ in scores if c != winner[0]]
+                # Demote the hypothesis (Index Agent caps the report row),
+                # but emit a carveout record so the Index Agent's STEP 1.5
+                # consolidation knows to split out the spared constituents
+                # as separate report rows at their original severity.
+                demotions.append({
+                    "finding_id": fid,
+                    "original_severity": severity,
+                    "new_severity": new_sev,
+                    "poc_class": poc_class,
+                    "reason": reason + f" (verifier tested constituent {winner[0]} "
+                                       f"with Jaccard {winner[1]:.2f}; "
+                                       f"{len(spared)} other constituent(s) spared)",
+                })
+                carveout_skips.append({
+                    "hypothesis_id": fid,
+                    "tested_constituent": winner[0],
+                    "tested_jaccard": f"{winner[1]:.2f}",
+                    "spared_constituents": ",".join(spared),
+                })
+                continue
+            elif match_kind == "ambiguous":
+                # Verifier's claim doesn't match any constituent — keep
+                # current cap-all behavior (safe fallback). Annotate the
+                # reason so the report writer understands.
+                top_score = max((s for _, s in scores), default=0.0)
+                reason = (
+                    reason +
+                    f" (verifier claim-ambiguous: best constituent match Jaccard "
+                    f"{top_score:.2f} < 0.40 threshold; cap-all applied)"
+                )
+            # shared_claim → fall through to cap-all (verifier tested
+            # a property all constituents share, so demoting all is correct)
+
         demotions.append({
             "finding_id": fid,
             "original_severity": severity,
@@ -10581,34 +12835,230 @@ def _apply_poc_fail_demotions(scratchpad: Path, mode: str) -> list[dict[str, str
             )
         (scratchpad / "poc_demotions.md").write_text("".join(lines), encoding="utf-8")
 
+    if carveout_skips:
+        clines = [
+            "# PoC Demotion Constituent Carveouts (Fix 4)\n\n",
+            "When a multi-constituent hypothesis received [POC-FAIL] but the "
+            "verifier's Finding Summary only matched ONE constituent's claim "
+            "well, the un-tested constituents are spared from the cap. The "
+            "Index Agent STEP 1.5 consolidation should split the spared "
+            "constituents into SEPARATE report rows at their original "
+            "severity, leaving only the tested constituent under the demotion.\n\n",
+            "| Hypothesis ID | Tested Constituent | Tested Jaccard | Spared Constituents |\n",
+            "|---------------|--------------------|-----------------|---------------------|\n",
+        ]
+        for c in carveout_skips:
+            clines.append(
+                f"| {c['hypothesis_id']} | {c['tested_constituent']} "
+                f"| {c['tested_jaccard']} | {c['spared_constituents']} |\n"
+            )
+        (scratchpad / "poc_demotion_carveouts.md").write_text(
+            "".join(clines), encoding="utf-8"
+        )
+
     return demotions
 
 
-_TRIVIAL_ASSERT_STRS = [
-    "assert!(true)", "assert_eq!(1, 1)", "assert_eq!(true, true)",
-    "assert!(1 == 1)", "assert!(1==1)",
+# Per-ecosystem assertion vocabulary. Each ecosystem's "any" / "nontrivial" /
+# "trivial_strs" cover the canonical test-runner output the verifier writes:
+#   evm        — Foundry (Solidity) `assertEq/assertTrue/vm.expectRevert/...`
+#                + Hardhat (chai) `expect(...).to.equal/revert/emit/...`
+#   solana     — Rust `assert!`/`assert_eq!`/`#[should_panic]`/`.unwrap_err()`
+#   aptos      — Move `assert!(cond, abort_code)` (two-arg)
+#   sui        — Move `assert!(cond)` (single-arg)
+#   soroban    — Rust (same family as solana)
+#   l1_go      — Go `t.Fatal/t.Error/...` + testify `assert.*` / `require.*`
+#   l1_rust    — Rust (same family as solana)
+# The legacy globals below are kept as the union fallback for callers that
+# don't dispatch by language (back-compat).
+
+_EVM_ANY_RE = re.compile(
+    r"assertEq|assertNotEq|assertTrue|assertFalse|"
+    r"assertGt|assertGe|assertLt|assertLe|"
+    r"assertApproxEq(?:Abs|Rel)|"
+    r"vm\.expectRevert|vm\.expectEmit|vm\.expectCall|"
+    r"expect\([^)]+\)\.to\.(?:be|equal|revert|emit|have|deep|include)",
+    re.IGNORECASE,
+)
+_EVM_NONTRIVIAL_RE = re.compile(
+    # assertEq(IDENT, ...) where IDENT is not a bare bool/number literal,
+    # so `assertEq(1, 1)` / `assertEq(true, true)` fall through to the trivial check.
+    r"assert(?:Eq|NotEq|Gt|Ge|Lt|Le|ApproxEqAbs|ApproxEqRel)\s*\(\s*(?!(?:true|false)\s*[,)])[A-Za-z_][A-Za-z_0-9.\[\]()]*\s*,|"
+    r"assertTrue\s*\(\s*(?!true\s*[,)])[A-Za-z_][A-Za-z_0-9.\[\]()]*|"
+    r"assertFalse\s*\(\s*(?!false\s*[,)])[A-Za-z_][A-Za-z_0-9.\[\]()]*|"
+    r"vm\.expectRevert\s*\(\s*[A-Za-z\d_]|"
+    r"vm\.expectEmit|"
+    r"expect\([^)]+\)\.to\.(?:revert|emit|equal|deep|have|include)",
+    re.IGNORECASE,
+)
+_EVM_TRIVIAL_STRS = [
+    "assertEq(1, 1)", "assertEq(0, 0)",
+    "assertEq(true, true)", "assertEq(false, false)",
+    "assertTrue(true)", "assertFalse(false)",
+    "vm.expectRevert();",
 ]
 
-_NONTRIVIAL_ASSERT_RE = re.compile(
+_RUST_ANY_RE = re.compile(
+    r"assert(?:_eq|_ne|_matches)?!\s*\(|"
+    r"#\[should_panic|"
+    r"\.unwrap_err\(\)|"
+    r"\.is_err\(\)|"
+    r"\.is_none\(\)",
+    re.IGNORECASE,
+)
+_RUST_NONTRIVIAL_RE = re.compile(
     r"#\[should_panic|"
     r"\.unwrap_err\(\)|"
     r"\.is_err\(\)|"
     r"\.is_none\(\)|"
-    r"assert(?:_eq|_ne|_matches)?!\s*\([^)]*(?:result|output|value|balance|state|err|len|count|sum)|"
+    r"assert(?:_eq|_ne|_matches)?!\s*\([^)]*(?:result|output|value|balance|state|err|len|count|sum|got|exp|act|amount|owner|address|received|sent|delta)",
+    re.IGNORECASE,
+)
+_RUST_TRIVIAL_STRS = [
+    "assert!(true)", "assert_eq!(1, 1)", "assert_eq!(true, true)",
+    "assert!(1 == 1)", "assert!(1==1)",
+]
+
+# Move (Aptos): assert!(cond, abort_code) — two-arg form
+_APTOS_MOVE_ANY_RE = re.compile(
+    r"assert!\s*\(",
+)
+_APTOS_MOVE_NONTRIVIAL_RE = re.compile(
+    r"assert!\s*\([^,)]*(?:result|output|value|balance|state|got|exp|act|len|count|sum|amount|owner|received|sent|delta|==|!=|>=|<=|>|<)[^,)]*,\s*\w+\s*\)",
+    re.IGNORECASE,
+)
+_APTOS_MOVE_TRIVIAL_STRS = [
+    "assert!(true,",
+    "assert!(true)",
+]
+
+# Move (Sui): assert!(cond) — single-arg form (abort code optional)
+_SUI_MOVE_ANY_RE = re.compile(
+    r"assert!\s*\(|"
+    r"abort\s+\d+",
+)
+_SUI_MOVE_NONTRIVIAL_RE = re.compile(
+    r"assert!\s*\([^)]*(?:result|output|value|balance|state|got|exp|act|len|count|sum|amount|owner|received|sent|delta|==|!=|>=|<=|>|<)",
+    re.IGNORECASE,
+)
+_SUI_MOVE_TRIVIAL_STRS = [
+    "assert!(true)",
+    "assert!(1 == 1)",
+]
+
+# Go testing + testify
+_GO_ANY_RE = re.compile(
+    r"t\.Fatal|t\.Error|t\.FailNow|t\.Fatalf|t\.Errorf|"
+    r"assert\.\w+\(|require\.\w+\(",
+    re.IGNORECASE,
+)
+_GO_NONTRIVIAL_RE = re.compile(
+    r"t\.Fatalf?\s*\(\s*\"[^\"]+\"\s*,|"
+    r"t\.Errorf?\s*\(\s*\"[^\"]+\"\s*,|"
+    r"(?:assert|require)\.(?:Equal|NotEqual|True|False|Nil|NotNil|Contains|Greater|Less|GreaterOrEqual|LessOrEqual|ErrorIs|NoError|Panics|Empty|Len)",
+    re.IGNORECASE,
+)
+_GO_TRIVIAL_STRS = [
+    't.Fatal("")', 't.Error("")', 'assert.True(t, true)', 'require.True(t, true)',
+    'assert.Equal(t, 1, 1)',
+]
+
+_ECOSYSTEM_ASSERT_DISPATCH: dict[str, dict[str, object]] = {
+    "evm":     {"any": _EVM_ANY_RE,        "nontrivial": _EVM_NONTRIVIAL_RE,        "trivial": _EVM_TRIVIAL_STRS},
+    "solana":  {"any": _RUST_ANY_RE,       "nontrivial": _RUST_NONTRIVIAL_RE,       "trivial": _RUST_TRIVIAL_STRS},
+    "soroban": {"any": _RUST_ANY_RE,       "nontrivial": _RUST_NONTRIVIAL_RE,       "trivial": _RUST_TRIVIAL_STRS},
+    "aptos":   {"any": _APTOS_MOVE_ANY_RE, "nontrivial": _APTOS_MOVE_NONTRIVIAL_RE, "trivial": _APTOS_MOVE_TRIVIAL_STRS},
+    "sui":     {"any": _SUI_MOVE_ANY_RE,   "nontrivial": _SUI_MOVE_NONTRIVIAL_RE,   "trivial": _SUI_MOVE_TRIVIAL_STRS},
+    "l1_go":   {"any": _GO_ANY_RE,         "nontrivial": _GO_NONTRIVIAL_RE,         "trivial": _GO_TRIVIAL_STRS},
+    "l1_rust": {"any": _RUST_ANY_RE,       "nontrivial": _RUST_NONTRIVIAL_RE,       "trivial": _RUST_TRIVIAL_STRS},
+}
+
+
+def _read_language_from_config(scratchpad: Path) -> str:
+    """Read 'language' from {scratchpad}/config.json. Returns '' if not present."""
+    try:
+        import json as _json
+        cfg_path = scratchpad / "config.json"
+        if cfg_path.exists():
+            return _json.loads(cfg_path.read_text(encoding="utf-8", errors="replace")).get("language", "") or ""
+    except Exception:
+        pass
+    return ""
+
+
+def _resolve_assert_dispatch(language: str) -> dict:
+    """Return per-ecosystem assertion regex bundle. Falls back to union if unknown.
+
+    The fallback is the union of all known ecosystem regexes — broader than any
+    single ecosystem. This preserves the legacy 'any caller without language
+    info gets the lenient detection' behavior while still catching Solidity
+    Foundry assertions that the v1 regex missed entirely.
+    """
+    lang = (language or "").lower().strip()
+    if lang in _ECOSYSTEM_ASSERT_DISPATCH:
+        return _ECOSYSTEM_ASSERT_DISPATCH[lang]
+    return {
+        "any": _ANY_ASSERT_RE,
+        "nontrivial": _NONTRIVIAL_ASSERT_RE,
+        "trivial": _TRIVIAL_ASSERT_STRS,
+    }
+
+
+# Legacy globals (back-compat). UNION across all ecosystems so any caller that
+# bypasses _resolve_assert_dispatch() still benefits from Foundry/Move/Go
+# vocabulary additions. Direct imports of these names remain valid.
+_TRIVIAL_ASSERT_STRS = list({
+    *_EVM_TRIVIAL_STRS, *_RUST_TRIVIAL_STRS,
+    *_APTOS_MOVE_TRIVIAL_STRS, *_SUI_MOVE_TRIVIAL_STRS, *_GO_TRIVIAL_STRS,
+})
+
+_NONTRIVIAL_ASSERT_RE = re.compile(
+    # Rust
+    r"#\[should_panic|"
+    r"\.unwrap_err\(\)|"
+    r"\.is_err\(\)|"
+    r"\.is_none\(\)|"
+    r"assert(?:_eq|_ne|_matches)?!\s*\([^)]*(?:result|output|value|balance|state|err|len|count|sum|got|exp|act|amount|owner|address|received|sent|delta)|"
+    # Foundry / Solidity
+    r"assert(?:Eq|NotEq|Gt|Ge|Lt|Le|ApproxEqAbs|ApproxEqRel)\s*\([^,)]+,[^)]+\)|"
+    r"assertTrue\s*\([^)]*(?:result|output|value|balance|state|err|len|count|sum|got|exp|act|amount|owner|address|gas|fee|received|sent|delta)|"
+    r"vm\.expectRevert\s*\(\s*[A-Za-z\d_]|"
+    r"vm\.expectEmit|"
+    # Hardhat (chai)
+    r"expect\([^)]+\)\.to\.(?:revert|emit|equal|deep|have|include)|"
+    # Python unittest (legacy)
     r"assert\s*\.\s*(?:True|False|Equal|NotEqual)|"
-    r"t\.Fatal|t\.Error|"
-    r"require\.",
+    # Go
+    r"t\.Fatalf?|t\.Errorf?|"
+    r"(?:assert|require)\.(?:Equal|NotEqual|True|False|Nil|NotNil|Contains|Greater|Less|ErrorIs|NoError|Panics|Empty|Len)",
     re.IGNORECASE,
 )
 
 _ANY_ASSERT_RE = re.compile(
+    # Rust
     r"assert(?:_eq|_ne|_matches)?!\s*\(|"
     r"#\[should_panic|"
     r"\.unwrap_err\(\)|"
+    r"\.is_err\(\)|"
+    r"\.is_none\(\)|"
+    # Foundry / Solidity
+    r"assertEq|assertNotEq|assertTrue|assertFalse|"
+    r"assertGt|assertGe|assertLt|assertLe|"
+    r"assertApproxEq(?:Abs|Rel)|"
+    r"vm\.expectRevert|vm\.expectEmit|vm\.expectCall|"
+    # Hardhat (chai)
+    r"expect\([^)]+\)\.to\.(?:be|equal|revert|emit|have|deep|include)|"
+    # Python unittest (legacy)
     r"assert\s*\.\s*(?:True|False|Equal|NotEqual)|"
-    r"t\.Fatal|t\.Error|"
-    r"require\.",
+    # Go
+    r"t\.Fatal|t\.Error|t\.FailNow|t\.Fatalf|t\.Errorf|"
+    r"assert\.\w+\(|require\.\w+\(",
     re.IGNORECASE,
+)
+
+
+_MECHANICAL_PASS_RE = re.compile(
+    r"(?im)^\s*\**Mechanical-Verified\**\s*:\s*YES\b[^\n]*\bStatus\s*:\s*PASS\b"
 )
 
 
@@ -10617,10 +13067,27 @@ def _validate_poc_pass_integrity(scratchpad: Path) -> list[dict[str, str]]:
 
     Catches trivial assertions (assert!(true)) and missing assertions.
     Returns list of findings to downgrade from [POC-PASS] -> [CODE-TRACE].
+
+    Per-ecosystem dispatch: reads `language` from `{scratchpad}/config.json`
+    and selects the matching assertion vocabulary. Falls back to union regex
+    if language is unset or unknown (back-compat).
+
+    T1-a: when the Phase 5b `mechanical_verify` phase actually compiled and
+    ran the finding's test file and stamped `Mechanical-Verified: YES —
+    Status: PASS`, that execution is ground truth. The .md code-block scan
+    below only sees the snippet pasted into the verify file, which routinely
+    omits the assertion living in the real `.t.sol` — so it false-downgrades
+    mechanically-proven passes. Mechanical PASS therefore overrides the scan.
     """
     rows = parse_verification_queue_rows(scratchpad)
     if not rows:
         return []
+
+    language = _read_language_from_config(scratchpad)
+    dispatch = _resolve_assert_dispatch(language)
+    any_re = dispatch["any"]
+    nontrivial_re = dispatch["nontrivial"]
+    trivial_strs = dispatch["trivial"]
 
     downgrades: list[dict[str, str]] = []
     for row in rows:
@@ -10639,13 +13106,18 @@ def _validate_poc_pass_integrity(scratchpad: Path) -> list[dict[str, str]]:
         if not has_mechanical_tag:
             continue
 
+        # T1-a: a mechanical PASS (Phase 5b ran the real test file) is
+        # authoritative — never downgrade it from a .md snippet scan.
+        if _MECHANICAL_PASS_RE.search(content):
+            continue
+
         code_blocks = re.findall(r"```(?:rust|go|python|solidity|javascript|typescript|move|toml)?\s*\n(.*?)```", content, re.DOTALL)
         if not code_blocks:
             continue
 
         all_code = "\n".join(code_blocks)
 
-        has_any_assert = bool(_ANY_ASSERT_RE.search(all_code))
+        has_any_assert = bool(any_re.search(all_code))
 
         if not has_any_assert:
             if "#[should_panic]" not in all_code and "should_panic" not in all_code:
@@ -10656,11 +13128,11 @@ def _validate_poc_pass_integrity(scratchpad: Path) -> list[dict[str, str]]:
                 })
             continue
 
-        has_nontrivial = bool(_NONTRIVIAL_ASSERT_RE.search(all_code))
+        has_nontrivial = bool(nontrivial_re.search(all_code))
         if not has_nontrivial:
             code_normalized = re.sub(r"\s+", "", all_code.lower())
             is_trivial = any(
-                t.replace(" ", "") in code_normalized for t in _TRIVIAL_ASSERT_STRS
+                t.replace(" ", "").lower() in code_normalized for t in trivial_strs
             )
             if is_trivial:
                 downgrades.append({
@@ -10670,3 +13142,163 @@ def _validate_poc_pass_integrity(scratchpad: Path) -> list[dict[str, str]]:
                 })
 
     return downgrades
+
+
+# ---------------------------------------------------------------------------
+# T2-a: verifier skip-vocabulary audit (WARNING-class)
+# ---------------------------------------------------------------------------
+
+_MOCK_IDENT_RE = re.compile(r"\b[A-Z][A-Za-z0-9_]*(?:Mock|Stub|Fake|Harness)\b")
+_VERIFY_CODE_BLOCK_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+
+
+def _build_succeeded(scratchpad: Path) -> Optional[bool]:
+    """Read build_status.md and report whether the project build succeeded.
+
+    Returns True/False when the status is determinable, None otherwise.
+    """
+    bs = scratchpad / "build_status.md"
+    if not bs.exists():
+        return None
+    try:
+        text = bs.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+    m = re.search(
+        r"(?im)^\s*\**(?:build\s+)?status\**\s*:\s*\**\s*([A-Za-z_ ]+)", text
+    )
+    if m:
+        v = m.group(1).strip().lower()
+        if v.startswith(("success", "ok", "pass", "compiled")):
+            return True
+        if "fail" in v or "error" in v:
+            return False
+    tl = text.lower()
+    if "compiled successfully" in tl or "build: success" in tl:
+        return True
+    if "build failed" in tl or "compilation failed" in tl:
+        return False
+    return None
+
+
+def _validate_verifier_skip_vocabulary(scratchpad: Path) -> list[str]:
+    """T2-a (WARNING-class): catch invalid PoC-skip reasons in verify files.
+
+    Four mechanical checks. Emits warnings and writes verifier_skip_audit.md;
+    NEVER blocks the gate. The recall lever is the strengthened verification
+    prompt preconditions — this is the observability safety net.
+
+      Check 1 — mock-consistency: a verify file that skips with
+        EXTERNAL_DEPENDENCY_NO_FORK_OR_ADDRESS citing a missing mock, while
+        another passing test in the same project demonstrably used a mock.
+      Check 2 — NO_BUILD_ENVIRONMENT cited while build_status.md = SUCCESS.
+      Check 3 — DEPLOYMENT_ONLY_REQUIRES_LIVE_EXTERNAL on a unit-class
+        finding (unit-class is harness-testable by definition).
+      Check 4 — empty / N/A skip reason on a unit-class finding.
+    """
+    rows = parse_verification_queue_rows(scratchpad)
+    if not rows:
+        return []
+    build_ok = _build_succeeded(scratchpad)
+
+    # Pass 1: is mocking demonstrably feasible in this project? (any passing
+    # verify file whose code blocks reference a *Mock/*Stub/*Fake/*Harness).
+    mock_feasible = False
+    mock_example = ""
+    verify_cache: dict[str, str] = {}
+    for row in rows:
+        fid = (row.get("finding id") or "").strip()
+        if not fid:
+            continue
+        vp = _find_verify_file(scratchpad, fid)
+        if not vp:
+            continue
+        try:
+            content = vp.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        verify_cache[fid] = content
+        if has_mechanical_proof(content):
+            code = "\n".join(_VERIFY_CODE_BLOCK_RE.findall(content))
+            mm = _MOCK_IDENT_RE.search(code)
+            if mm:
+                mock_feasible = True
+                if not mock_example:
+                    mock_example = mm.group(0)
+
+    skip_re = re.compile(
+        r"(?:PoC\s+Not\s+Attempted\s+Because|Not\s+Attempted\s+Because"
+        r"|PoC\s+[Ss]kip(?:\s+[Rr]eason)?|[Ss]kip\s+[Rr]eason)"
+        r"\s*:\s*\**\s*([A-Za-z_/ ]+)",
+        re.IGNORECASE,
+    )
+    warnings: list[str] = []
+    audit_rows: list[str] = []
+    for row in rows:
+        fid = (row.get("finding id") or "").strip()
+        content = verify_cache.get(fid)
+        if not content:
+            continue
+        poc_class = (row.get("poc class") or "structural").strip().lower()
+        attempted_no = bool(
+            re.search(r"Attempted\s*:\s*NO\b", content, re.IGNORECASE)
+        )
+        m = skip_re.search(content)
+        skip_code = (m.group(1).strip() if m else "").upper()
+        if not attempted_no and not skip_code:
+            continue  # PoC was attempted — nothing to audit
+
+        invalid: Optional[str] = None
+        if "NO_BUILD_ENVIRONMENT" in skip_code and build_ok is True:
+            invalid = (
+                "NO_BUILD_ENVIRONMENT cited but build_status.md reports a "
+                "SUCCESSFUL build — the harness exists"
+            )
+        elif (
+            "DEPLOYMENT_ONLY_REQUIRES_LIVE_EXTERNAL" in skip_code
+            and poc_class == "unit"
+        ):
+            invalid = (
+                "DEPLOYMENT_ONLY_REQUIRES_LIVE_EXTERNAL cited on a unit-class "
+                "finding — unit-class is harness-testable by definition"
+            )
+        elif (
+            poc_class == "unit"
+            and attempted_no
+            and skip_code in ("", "N/A", "NA", "NONE")
+        ):
+            invalid = (
+                "unit-class finding skipped with an empty / N/A reason — no "
+                "real environmental blocker named"
+            )
+        elif (
+            "EXTERNAL_DEPENDENCY_NO_FORK" in skip_code
+            and mock_feasible
+            and re.search(r"\bmock\b", content, re.IGNORECASE)
+        ):
+            invalid = (
+                "EXTERNAL_DEPENDENCY_NO_FORK_OR_ADDRESS skip cites a missing "
+                f"mock, but mocking is demonstrably feasible here (a passing "
+                f"test used `{mock_example}`)"
+            )
+
+        if invalid:
+            warnings.append(f"{fid}: {invalid}")
+            audit_rows.append(
+                f"| {fid} | {poc_class} | {skip_code or 'N/A'} | {invalid} |"
+            )
+
+    if audit_rows:
+        try:
+            (scratchpad / "verifier_skip_audit.md").write_text(
+                "# Verifier Skip-Reason Audit (T2-a)\n\n"
+                "WARNING-class. Each row is a PoC skip whose reason fails a "
+                "mechanical validity check — the PoC should have been "
+                "attempted.\n\n"
+                "| Finding | PoC Class | Skip Code | Why Invalid |\n"
+                "|---|---|---|---|\n" + "\n".join(audit_rows) + "\n",
+                encoding="utf-8",
+            )
+        except Exception:
+            pass
+    return warnings

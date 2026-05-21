@@ -94,20 +94,34 @@ ADAPTIVE_DEPTH_LOOP(findings_inventory):
          - Each property function tests one invariant
       2. Generate a `medusa.json` config file with:
          - Target compilation settings matching the project
-         - 15-minute timeout (`testLimit` or `timeout` appropriately)
+         - `"timeout": 600` (10 minutes) in the fuzzing block
          - Corpus directory in `.medusa-tests/corpus/`
+         - `"stopOnFailedTest": false` in the fuzzing block — without this,
+           Medusa halts at the first invariant violation (default `true`)
+           and never explores remaining invariants. Production audits
+           set this `false` for comprehensive coverage.
 
       ### STEP 2: Run Medusa
-      Execute: `medusa fuzz --config .medusa-tests/medusa.json --timeout 900`
+      Execute: `medusa fuzz --config .medusa-tests/medusa.json --timeout 600`
       Parse output for:
       - Property violations (counterexamples found)
       - Coverage metrics
       - Crash/error details
 
       ### STEP 3: Report Results
-      For each violation found, create a finding with:
+
+      ### STEP 3a: Dedup BEFORE writing findings
+      With stopOnFailedTest: false, Medusa surfaces the same root cause
+      from many counterexamples (e.g. fuzz_feePercentBounded violated at
+      1010, 4037, 186226859814786 — same bug, many witnesses). Group by
+      (target_contract, property_function, violated_assertion). Emit one
+      [MEDUSA-N] per group; list the smallest counterexample first and
+      note "additional N counterexamples elided" in the Description.
+
+      ### STEP 3b: Per-finding format
+      For each deduplicated violation, create a finding with:
       - Finding ID: [MEDUSA-N]
-      - The counterexample call sequence
+      - The smallest counterexample call sequence
       - Which invariant was violated
       - Evidence tag: [MEDUSA-PASS] (counterexample = mechanical proof of violation)
 

@@ -13,9 +13,9 @@ Read existing `verify_*.md` files in the scratchpad and write ONLY
 1. Do not spawn subagents.
 2. Do not create or rewrite per-finding `verify_<ID>.md` files.
 3. Do not read shard manifests unless needed only to confirm expected IDs.
-4. Do not write cross-batch, skeptic, report, or consistency artifacts.
-5. Preserve each verifier status, evidence tag, and location exactly enough for
-   downstream gates to parse.
+4. Do not write artifacts outside the aggregate output contract.
+5. Preserve each verifier status, evidence tag, and location exactly enough
+   for downstream consumers to parse.
 
 ## Output
 

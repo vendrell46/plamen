@@ -1,37 +1,25 @@
-# Phase 4a: Inventory Agent Base Methodology (v2.4.8)
+# Inventory Agent Base Methodology
 
-> **Audience**: All inventory agents (SC and L1). Language-specific and
-> pipeline-specific details (input file lists, output naming, static
-> analysis promotion) are supplied by the cost directive or the
-> language-specific inventory prompt that imports this base.
->
 > **This file defines**: What the inventory agent does, how it assigns
 > IDs, dedup rules, required fields, trust-assumption tagging, and the
 > LIKELY-DUP signal format.
->
-> **NOT covered here**: Phase 4a.5 (semantic invariants), Phase 4b
-> (depth loop), or any later phase methodology.
 
 ---
 
 ## 1. Purpose
 
-The inventory agent merges ALL discovery-phase output files into a
-single consolidated `findings_inventory.md`. This is the canonical
-finding registry consumed by every downstream phase (depth, chain
-analysis, verification, report). No finding enters the pipeline without
-passing through inventory.
+The inventory agent merges discovery-phase output files into a
+consolidated `findings_inventory.md`. This is the canonical finding
+registry. No finding enters the audit pipeline without passing through
+inventory.
 
-Discovery-phase outputs vary by pipeline and phase position:
-- **SC inventory**: `analysis_*.md` files from breadth, plus
-  `analysis_rescan_*.md` and `analysis_percontract_*.md` if rescan/
-  per-contract phases ran.
-- **L1 inventory**: `analysis_*.md` files from the L1 breadth phase, plus
-  `graph_sweep_summary.md`, `coverage_fill_*.md`, `panic_audit_*.md`,
-  `panic_audit_summary.md`, `symmetric_pair_findings.md`, and the optional
-  graph-sweep matrices/findings when the graph-sweep phase ran. Depth and
-  niche outputs are promoted into inventory later by the driver, after the
-  depth phase runs.
+Input files vary by pipeline:
+- **SC**: `analysis_*.md` files, plus `analysis_rescan_*.md` and
+  `analysis_percontract_*.md` when present.
+- **L1**: `analysis_*.md` files, plus `graph_sweep_summary.md`,
+  `coverage_fill_*.md`, `panic_audit_*.md`, `panic_audit_summary.md`,
+  `symmetric_pair_findings.md`, and graph-sweep matrices/findings when
+  present.
 
 ---
 
@@ -140,7 +128,7 @@ Trust Assumption Table from `design_context.md`.
 
 | Condition | Tag | Severity Effect |
 |-----------|-----|----------------|
-| Attack requires `FULLY_TRUSTED` actor (governance multisig, DAO, timelock) to act maliciously | `[ASSUMPTION-DEP: TRUSTED-ACTOR]` | -1 tier (applied by Index Agent in Phase 6) |
+| Attack requires `FULLY_TRUSTED` actor (governance multisig, DAO, timelock) to act maliciously | `[ASSUMPTION-DEP: TRUSTED-ACTOR]` | -1 tier (applied during report indexing) |
 | Attack requires `SEMI_TRUSTED` actor to act maliciously | No tag | No change -- Likelihood axis handles this |
 | Attack requires `SEMI_TRUSTED` actor to act WITHIN stated bounds | `[ASSUMPTION-DEP: WITHIN-BOUNDS]` | Flag only -- no severity change |
 | Attack requires `SEMI_TRUSTED` actor to EXCEED stated bounds | No tag | Real finding -- no change |
@@ -195,13 +183,9 @@ inline into each finding's detail block as a `**Dedup Signal**` line.
 
 ### Downstream Consumption
 
-- **Phase 4e (semantic dedup)**: LIKELY-DUP tags are a PRIMARY signal
-  for merge candidates. The dedup agent evaluates each tagged pair
-  using the same-fix-pattern test.
-- **Phase 6a (report index)**: STEP 1.5 Root-Cause Consolidation
-  evaluates LIKELY-DUP pairs as HINTS for merging. Neither signal ever
-  blocks or removes findings mechanically at the report level -- the
-  LLM makes the final semantic decision.
+LIKELY-DUP tags are advisory hints. Their consumers evaluate each tagged pair
+using a same-fix-pattern test before merging. The tag never blocks or removes
+a finding mechanically -- it surfaces a candidate for review.
 
 ### Invariant
 
@@ -232,9 +216,9 @@ The exact sections vary by pipeline and producer role but always include:
 
 ### SC-Specific Sections
 
-- Chain Summary (precondition/postcondition types for chain analysis)
-- REFUTED Findings (for depth second opinion)
-- CONTESTED Findings (for depth priority)
+- Chain Summary (precondition/postcondition types for downstream chain matching)
+- REFUTED Findings
+- CONTESTED Findings
 - Incomplete Analysis Flags (step execution gaps)
 - Rule Application Violations
 - Assumption Dependency Audit
@@ -255,8 +239,6 @@ The inventory agent MUST:
   `analysis_rescan_*.md`, `analysis_percontract_*.md`, and pipeline-specific
   graph/panic/coverage producer files) as read-only inputs
 - NOT modify other agents' output files
-- NOT proceed to Phase 4a.5 (semantic invariants), Phase 4b (depth),
-  chain analysis, verification, or report
 - NOT spawn sub-agents
 - Return a one-line summary and stop
 

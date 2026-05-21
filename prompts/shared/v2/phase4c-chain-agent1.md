@@ -47,11 +47,28 @@ overwrite them as you improve the analysis. Do not merely return a summary
 saying the files were written. Only return `DONE` after all three files exist
 on disk and contain the final content for this phase.
 
+> **Note**: `enabler_results.md` may already carry a richer
+> `MECHANICAL_BASELINE_STEP0A` table (pre-extracted dangerous states) — see
+> BOUNDED MODE under PHASE 0. Preserve and build on that table; do not
+> discard it for an empty rewrite.
+
 ---
 
 ## PHASE 0: ENABLER ENUMERATION (Rule 12)
 
-Before grouping, exhaustively enumerate all paths to each dangerous precondition state.
+> **BOUNDED MODE — read this first.** The driver pre-computes a mechanical
+> STEP 0a baseline in `{SCRATCHPAD}/enabler_results.md` (look for
+> `**Status**: MECHANICAL_BASELINE_STEP0A`). When that baseline is present:
+> - **STEP 0a is already done.** Take its dangerous-state table as the
+>   complete, finite set. Do NOT re-scan the inventory to extract dangerous
+>   states — that re-scan is the unbounded work that previously caused this
+>   phase to time out.
+> - Your PHASE 0 job is **STEP 0b + STEP 0c only**, over that fixed list.
+> - You MAY add a dangerous state the mechanical pass genuinely missed, but
+>   do not regenerate the table from scratch.
+> If `enabler_results.md` is absent or contains only the older
+> `MECHANICAL_BASELINE` stub (no STEP 0a table), fall back to generating
+> STEP 0a yourself per the step below.
 
 ### STEP 0-pre: Cross-Domain Dependency Scan
 
@@ -62,7 +79,9 @@ Search ALL depth agent output files (`depth_*_findings.md`) for `[CROSS-DOMAIN-D
 
 ### STEP 0a: Extract Dangerous States
 
-From all CONFIRMED, PARTIAL, and CONTESTED findings, extract each dangerous precondition state:
+**If the driver pre-filled STEP 0a (see BOUNDED MODE above), skip this step —
+use the pre-filled table.** Otherwise, from all CONFIRMED, PARTIAL, and
+CONTESTED findings, extract each dangerous precondition state:
 
 | Finding ID | Dangerous State S | Current Known Path(s) to S | Actor Category of Known Path |
 
@@ -93,10 +112,21 @@ Check if reaching state S1 (from Finding A) also reaches state S2 (from Finding 
 
 ## PHASE 1: GROUPING AND DEDUP
 
+> **BOUNDED MODE.** Do NOT compare all findings pairwise — for a large
+> inventory that is the unbounded work that times this phase out. The
+> `sc_semantic_dedup` phase already ran an O(n²) pairing pass; its output
+> `{SCRATCHPAD}/dedup_candidate_pairs.md` (and `_full.md`) lists the finding
+> pairs that share a root cause. **Group only findings that appear together
+> in a dedup candidate pair.** Every finding NOT in any dedup pair stays its
+> own single-finding hypothesis (1:1) — that is a valid, complete result,
+> not an omission. If `dedup_candidate_pairs.md` is absent, fall back to
+> root-cause grouping but cap effort at the clearest same-root-cause groups
+> and leave the rest 1:1.
+
 1. MERGE depth findings, enabler findings (`[EN-N]`), and breadth findings
-2. CROSS-CORRELATE findings across agents — deduplicate same root cause
-3. GROUP by root cause into hypotheses
-4. RECOVER dismissed findings if contradicted by depth agents
+2. CROSS-CORRELATE only the pairs in `dedup_candidate_pairs.md` — deduplicate same root cause
+3. GROUP by root cause into hypotheses (only dedup-paired findings; unpaired stay 1:1)
+4. RECOVER dismissed findings if contradicted by evidence in your inputs
 5. ANALYZE compound exploits
 6. VERIFY coverage — every finding has a status
 

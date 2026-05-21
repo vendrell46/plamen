@@ -244,6 +244,7 @@ config = {
     "pipeline": "l1",
     "language": LANGUAGE,       # "go" | "rust"
     "cli_backend": "claude",
+    "claude_exec_mode": "pty",
     "tier": TIER,               # "t0" | "t1" | "t2" | "t3"
     "subsystem_scope": SUBSYSTEM_SCOPE or "",
     "fork_mode": FORK_MODE or "standalone",

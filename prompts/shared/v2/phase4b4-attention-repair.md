@@ -1,11 +1,9 @@
-# Phase 4b.4: Attention Repair (Thorough Only)
+# Attention Repair (Thorough Only)
 
-> **Loaded by**: The V2 driver's Phase 4b.4 subprocess (attention repair).
-> **Trigger**: Run ONLY when the driver writes `{SCRATCHPAD}/attention_repair_queue.md`.
+> **Trigger**: Run ONLY when `{SCRATCHPAD}/attention_repair_queue.md` exists.
 > **Mode gate**: Thorough mode only.
-> **Purpose**: Repairs proven coverage/attention gaps. This is NOT another breadth
-> or depth iteration — it targets specific queue-driven deficiencies identified
-> by the driver's coverage validators.
+> **Purpose**: Repair specific queue-driven coverage/attention gaps.
+> This is NOT a general analysis pass — only the rows in the queue are in scope.
 
 ---
 
@@ -18,11 +16,7 @@
   test/mock/harness files that are specification evidence, not production
   coverage debt.
 
-**Do NOT read**:
-- All `analysis_*.md` files
-- All `depth_*_findings.md` files
-- All `verify_*.md` files
-- The full scratchpad contents
+**Do NOT read** large bulk artifacts (analysis/depth/verify outputs, the full scratchpad). Only read the queue row's named target.
 
 Do NOT re-audit the whole protocol. This phase is scoped to the specific gaps in the queue.
 

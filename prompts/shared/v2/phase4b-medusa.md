@@ -4,7 +4,6 @@ You are the Medusa Fuzz Campaign Agent for EVM Thorough mode. Execute these
 instructions directly and stop. Do not spawn subagents.
 
 > **Mode gate**: EVM Thorough only.
-> **Trigger**: Runs during Phase 4b depth before depth exits.
 > **Condition**: If Medusa is unavailable, write a graceful unavailable note.
 
 ---
@@ -28,8 +27,7 @@ Read:
 4. Record any counterexamples as findings with `[MEDUSA-N]` IDs and concrete
    source references.
 
-Do not read broad Phase 4b loop files. This standalone prompt is the complete
-Medusa contract for the depth phase.
+This standalone prompt is the complete Medusa contract.
 
 ## Output
 

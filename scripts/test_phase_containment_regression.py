@@ -414,13 +414,14 @@ def test_PROMPT_breadth_excludes_rescan_outputs(tmp_path: Path):
 
     prompt = D.build_phase_prompt(v1, phase, config)
 
-    forbidden = [
-        "Breadth Re-Scan",
-        "Phase 3b",
-        "analysis_rescan_",
-        "analysis_percontract_",
-    ]
-    hits = [token for token in forbidden if token in prompt]
+    # v2.0.10 (P4.2): the FORBIDDEN OUTPUT FILES block intentionally mentions
+    # these tokens in a "MUST NOT write" negative-scope context. The
+    # boundary-violation validator at plamen_prompt._find_prompt_phase_boundary_violations
+    # is the right authority — it skips lines containing negative-scope
+    # markers ("do not", "must not", "later phase", etc.). We use the same
+    # function here so the test stays in sync with the runtime gate.
+    from plamen_prompt import _find_prompt_phase_boundary_violations
+    hits = _find_prompt_phase_boundary_violations(prompt, "breadth")
     check(
         "PROMPT.breadth_later_phase_text_stripped",
         not hits
@@ -709,14 +710,12 @@ def test_PROMPT_rescan_runs_before_inventory_and_owns_only_additional_analysis(t
 
     prompt = D.build_phase_prompt(v1, phase, config)
 
-    forbidden = [
-        "findings_inventory.md",
-        "inventory merge",
-        "verification_queue.md",
-        "AUDIT_REPORT.md",
-        "depth_*",
-    ]
-    hits = [token for token in forbidden if token.lower() in prompt.lower()]
+    # v2.0.10 (P4.2): the FORBIDDEN OUTPUT FILES block for rescan
+    # intentionally names downstream tokens in negative-scope (MUST NOT)
+    # context. Use the same negative-scope-aware validator the runtime
+    # gate uses.
+    from plamen_prompt import _find_prompt_phase_boundary_violations
+    hits = _find_prompt_phase_boundary_violations(prompt, "rescan")
     check(
         "PROMPT.rescan_pre_inventory_contract",
         not hits

@@ -6,10 +6,8 @@ Execute the instructions below directly and stop. Do not spawn subagents.
 > **Efficiency**: This is a mechanical cross-reference task. Map
 > variables to findings directly without extensive reasoning.
 > **Purpose**: Create a cross-reference mapping state variables to
-> findings that read or write them. Used by Chain Agent 2 for
+> findings that read or write them. The mapping is used downstream for
 > variable-level postcondition-to-precondition matching.
-> **Trigger**: Always runs after depth iteration 1 completes, before
-> chain analysis.
 
 ---
 

@@ -20,13 +20,12 @@ Build the verification queue only.
 
 ### Method
 
-1. Read only the inputs above and route findings that require Phase 5
+1. Read only the inputs above and route findings that require
    verification into `{SCRATCHPAD}/verification_queue.md`.
 2. Preserve finding IDs, severity, location, primary artifact, and concise
    verification objective for each queued row.
 3. Do not verify findings in this phase.
-4. Do not spawn verifier shards, skeptic-judge agents, cross-batch agents, or
-   report agents.
+4. Do not spawn any Task subagents — this is queue construction only.
 
 ### Output
 
@@ -52,10 +51,9 @@ For each assigned row, read only:
 - the exact source file(s) at the row's `Location`
 - the one `Primary Artifact` named in the queue row
 
-Do NOT open legacy language-specific Phase 5 prompt files from inside a shard.
-Those legacy files contain skeptic, cross-batch, aggregate, and report
-instructions. This standalone shard contract plus `phase5-poc-execution.md` is
-the complete verifier methodology for V2.
+Do NOT open legacy language-specific prompt files from inside a shard.
+This standalone shard contract plus `phase5-poc-execution.md` is the
+complete verifier methodology.
 
 ### Method
 
@@ -96,7 +94,7 @@ Every verifier file MUST include this ledger:
 - PoC Required: YES/NO
 - PoC Class: <unit|property|integration|structural>
 - Attempted: YES/NO
-- PoC Not Attempted Because: <NO_BUILD_ENVIRONMENT|EXTERNAL_DEPENDENCY_NO_FORK_OR_ADDRESS|DEPLOYMENT_ONLY_REQUIRES_LIVE_EXTERNAL|PURE_SPEC_OR_DOCS_ONLY|STRUCTURAL_NO_EXECUTABLE_HARM_ASSERTION|N/A>
+- PoC Not Attempted Because: <NO_BUILD_ENVIRONMENT|EXTERNAL_DEPENDENCY_NO_FORK_OR_ADDRESS|DEPLOYMENT_ONLY_REQUIRES_LIVE_EXTERNAL|PURE_SPEC_OR_DOCS_ONLY|STRUCTURAL_NO_EXECUTABLE_HARM_ASSERTION|CROSS_VM_ENCODING_NO_RUNTIME|N/A>
 - Test File: <path or N/A>
 - Command: <command or N/A>
 
@@ -111,6 +109,15 @@ written" are invalid unless `PoC Not Attempted Because` names a real
 environmental blocker. Do not use `STRUCTURAL_NO_EXECUTABLE_HARM_ASSERTION`
 for a `unit` or `property` queue row; that means the queue classification must
 be challenged, not silently bypassed.
+
+**Skip codes have validity preconditions** — see `phase5-poc-execution.md`
+§ "Skip-Reason Validity Preconditions". In short: `NO_BUILD_ENVIRONMENT` is
+invalid when the build succeeded; `EXTERNAL_DEPENDENCY_NO_FORK_OR_ADDRESS` is
+invalid when the dependency can be mocked (mock it and run the PoC);
+`DEPLOYMENT_ONLY_REQUIRES_LIVE_EXTERNAL` is invalid on a `unit`-class row;
+`N/A` is invalid on a `unit`/`property` row when a build harness exists. The
+driver mechanically audits these and logs violations to
+`verifier_skip_audit.md`.
 
 ### Output
 
@@ -130,8 +137,7 @@ Return one compact line per row:
 
 SCOPE: Write ONLY the `verify_<ID>.md` files for IDs assigned in this shard's
 manifest. Do NOT read or write other verifier shards' files. Do NOT write
-skeptic, cross-batch, aggregate, report, or later-phase artifacts. Return your
-findings and stop.
+any artifact outside this contract. Return your findings and stop.
 
 ---
 
@@ -160,5 +166,4 @@ Write ONLY `{SCRATCHPAD}/verify_core.md`.
 
 SCOPE: Write ONLY `{SCRATCHPAD}/verify_core.md`. You MAY read upstream
 `verify_*.md` files and `verification_queue.md` to aggregate them, but you MUST
-NOT modify those inputs or create new per-finding verifier files. Do NOT proceed
-to skeptic, cross-batch, report, or any later phase. Return and stop.
+NOT modify those inputs or create new per-finding verifier files. Return and stop.

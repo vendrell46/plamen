@@ -4,3 +4,12 @@
 [submodule "custom-mcp/slither-mcp"]
 	path = custom-mcp/slither-mcp
 	url = https://github.com/trailofbits/slither-mcp
+[submodule "opengrep-rules/aptos-move-rules"]
+	path = opengrep-rules/aptos-move-rules
+	url = https://github.com/aptos-labs/semgrep-move-rules.git
+[submodule "opengrep-rules/decurity-rules"]
+	path = opengrep-rules/decurity-rules
+	url = https://github.com/Decurity/semgrep-smart-contracts.git
+[submodule "opengrep-rules/opengrep-rules"]
+	path = opengrep-rules/opengrep-rules
+	url = https://github.com/opengrep/opengrep-rules.git

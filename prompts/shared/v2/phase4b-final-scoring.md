@@ -7,8 +7,7 @@ Execute the instructions below directly and stop. Do not spawn subagents.
 > Prioritize responding quickly. Apply scoring formulas directly without
 > extensive reasoning.
 > **Mode gate**: Core and Thorough only. Light mode has no scoring.
-> **Trigger**: After Phase 4b.5 RAG Validation Sweep completes and
-> `rag_validation.md` exists.
+> **Prerequisite**: `rag_validation.md` exists with per-finding RAG scores.
 > **Purpose**: Replace the RAG axis floor scores (0.3) with actual RAG
 > validation results and compute final composite scores.
 

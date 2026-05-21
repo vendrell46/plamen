@@ -130,6 +130,5 @@ the next assigned row. After all assigned rows are written, return and stop.
 
 Do NOT:
 - Read or write other shards' verify files
-- Proceed to cross-batch, skeptic-judge, or aggregate phases
-- Write findings_inventory.md or hypotheses.md updates
+- Write artifacts outside the verify_<ID>.md contract
 - Spawn nested subagents

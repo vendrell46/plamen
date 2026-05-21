@@ -12,16 +12,11 @@
 
 ## Phase Boundary
 
-This prompt owns only Phase 4b depth work. It must not execute Phase 4b.5
-RAG, chain analysis, verification queue construction, per-finding
-verification, skeptic/crossbatch work, or report work.
-
 Depth may write only depth-owned artifacts: depth/scanner/niche findings,
 initial confidence scoring, adaptive loop logs, design stress, perturbation,
 skill execution gaps, invariant fuzz results, Medusa fuzz findings, and the
-depth lifecycle markers. If a later phase needs extra context, record the need
-inside a depth-owned output and stop; the driver starts the later phase with a
-fresh subprocess.
+depth lifecycle markers. Record any extra context inside a depth-owned
+output and stop.
 
 ## Light Mode Override
 
@@ -31,7 +26,7 @@ When `MODE == light`, skip the standard 8-agent spawn. Instead spawn 4 merged so
 - (c) combined scanner A+B+C writes `blind_spot_a_findings.md`, `blind_spot_b_findings.md`, and `blind_spot_c_findings.md`
 - (d) validation sweep writes `validation_sweep_findings.md` or `scanner_validation_findings.md`
 
-Skip niche agents, skip confidence scoring, skip iterations 2-3. After iteration 1 completes, write the required depth outputs and stop. Chain analysis runs in a separate phase.
+Skip niche agents, skip confidence scoring, skip iterations 2-3. After iteration 1 completes, write the required depth outputs and stop.
 
 ---
 
@@ -190,6 +185,60 @@ causes the Python gate to fail the whole depth phase.
 
 Before returning from the depth phase, re-open the four standard depth output files and verify each contains `## Graph Artifact Consumption` plus all four graph-artifact basenames. If any output is missing the section, repair that output before returning; do not rely on the driver retry.
 
+### Two Mandatory Additions to Each Depth Agent Prompt
+
+When constructing each depth agent's Task() prompt, include the two
+directives below VERBATIM. They are MANDATORY, not optional. Prior audits
+showed 35-40% compliance when they were phrased as soft one-liners — they
+are now hard obligations with worked examples. They are still compact
+(no 300-token blocks) so they do not strain the per-session token cap.
+
+For all 4 standard depth roles (token-flow, state-trace, edge-case,
+external):
+
+> **MANDATORY — Obligation Receipts.** If `{SCRATCHPAD}/function_summary.md`
+> exists, your output file is INCOMPLETE until it ends with a single
+> `## Obligation Receipts — function_summary.md` section. For EVERY row in
+> your role's partition (state-trace owns state-writer rows; token-flow owns
+> external-caller rows; edge-case and external own either) emit one receipt:
+> `[OBLIG:function_summary.md:<contract>.<function>] STATUS:R|D|C KEY:<one-line> -> <finding_id|reason>`
+> STATUS is `R` (Reported a finding), `D` (Dismissed — concrete reason it is
+> safe), or `C` (Carried to a named later phase). Every partition row needs
+> a receipt; an un-receipted row is an unaccounted obligation.
+>
+> Worked example — `function_summary.md` row `Vault.withdraw` is in your
+> state-trace partition and you found no bug:
+> `[OBLIG:function_summary.md:Vault.withdraw] STATUS:D KEY:burns shares before transfer, CEI order correct -> no finding, balances reconcile`
+
+For token-flow and state-trace ONLY (edge-case/external are covered by the
+post-depth Perturbation Agent):
+
+> **MANDATORY — Perturbation Block.** For EACH Medium+ CONFIRMED finding you
+> produce, append a `### Perturbation Block — <finding_id>` table directly
+> after the finding. The table has one row per operator: `SIBLING` (each
+> sibling contract/function that shares the pattern), `FIELD` (each decoded
+> calldata/struct field), `DIRECTION_FLIP` (the inverse operation, or N/A),
+> `ACTOR` (the Rule 12 actor categories). At least 2 rows MUST carry a
+> non-N/A verdict with a `file:line` citation — a perturbation block where
+> every row is N/A is non-compliant.
+>
+> Worked example for a deposit-rounding finding `DT-3`:
+> ```
+> ### Perturbation Block — DT-3
+> | Operator | Probe | Verdict |
+> |----------|-------|---------|
+> | SIBLING | Pool.mint() shares same rounding helper | VULNERABLE — Pool.sol:88 rounds down identically |
+> | FIELD | amount field | safe — bounded by balanceOf check at Vault.sol:140 |
+> | DIRECTION_FLIP | withdraw() inverse path | VULNERABLE — Vault.sol:201 rounds down on burn too |
+> | ACTOR | first depositor | N/A |
+> ```
+
+The Python gates (`_check_function_summary_obligation` and
+`_check_perturbation_block_per_finding`) parse the resulting receipts and
+perturbation blocks. Both gates are WARNING-only — the pipeline never halts
+on missing receipts — but an output with zero receipts or a Medium+ finding
+with no perturbation block is a documented quality failure.
+
 ### Blind Spot Scanners (3)
 
 | Scanner | Focus | Output File |
@@ -268,7 +317,7 @@ Each of the 4 depth-agent prompts (token-flow, state-trace, edge-case, external)
 
 ## Scoring (MANDATORY for Core/Thorough)
 
-After iteration 1 agents return, the orchestrator MUST spawn the scoring agent and await `confidence_scores.md` before deciding whether to proceed to iteration 2. Skipping scoring to "go straight to chain analysis" is a VIOLATION.
+After iteration 1 agents return, the orchestrator MUST spawn the scoring agent and await `confidence_scores.md` before deciding whether to proceed to iteration 2. Skipping scoring to "move on" is a VIOLATION.
 
 This is **initial Phase 4b confidence scoring** and is in scope for the depth
 phase. It is distinct from the later `final_scoring` phase. Do not run RAG or
@@ -311,7 +360,7 @@ composite = Evidence x 0.25 + Consensus x 0.25 + Analysis_Quality x 0.3 + RAG_Ma
 
 ## Iteration 2 (Thorough Only)
 
-**Core mode**: Skip iteration 2 entirely. Record uncertain findings in depth outputs, then stop. Later phases consume those outputs separately.
+**Core mode**: Skip iteration 2 entirely. Record uncertain findings in depth outputs, then stop.
 
 **Thorough mode**: Spawn targeted Devil's Advocate depth agents per domain for ALL uncertain findings.
 

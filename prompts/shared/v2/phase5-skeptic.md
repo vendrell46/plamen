@@ -1,8 +1,6 @@
-# Phase 5.1: Skeptic-Judge Verification (Thorough Mode Only)
+# Skeptic-Judge Adversarial Verification
 
-> **Loaded by**: The V2 driver's Phase 5.1 subprocess (skeptic-judge).
-> **Mode gate**: Thorough mode ONLY. Skip in Light and Core mode.
-> **Trigger**: After ALL standard Phase 5 verifiers complete.
+> **Mode gate**: Thorough mode ONLY.
 > **Purpose**: Adversarial re-verification of HIGH and CRITICAL findings via
 > inversion mandate and judge escalation.
 > **Read templates from**: `~/.claude/prompts/{LANGUAGE}/phase5-verification-prompt.md`
@@ -25,14 +23,13 @@ the stated severity matches the realistic worst case.
 
 ## Identification
 
-After ALL standard Phase 5 verifiers complete:
+From the verify outputs already on disk:
 
 1. Read `{SCRATCHPAD}/skeptic_manifest.json` first when it exists. It is the
    authoritative list of Critical/High finding IDs this phase must cover.
 2. If the manifest is absent, identify all HIGH and CRITICAL findings with
    reportable standard verdicts from `verify_*.md` files.
-3. Review each finding in this phase process. Do NOT spawn nested skeptic or
-   judge subagents.
+3. Review each finding in this phase process. Do NOT spawn nested subagents.
 
 ---
 
@@ -88,9 +85,9 @@ Decision: KEEP / DOWNGRADE / UNRESOLVED
 
 ### If Skeptic AGREES
 
-Final verdict = standard verdict from Phase 5. The finding has survived
-adversarial pressure. Still write a row in `skeptic_judge_decisions.md` with
-`Decision = KEEP`.
+Final verdict = the standard verifier verdict already on disk for this
+finding. It has survived adversarial pressure. Still write a row in
+`skeptic_judge_decisions.md` with `Decision = KEEP`.
 
 ### If Skeptic DISAGREES
 
@@ -99,7 +96,19 @@ and do NOT write `judge_<id>.md` shard files.
 
 Use these rules:
 
-1. `[POC-PASS]` outweighs theoretical arguments.
+1. `[POC-PASS]` outweighs theoretical arguments — **but only when sourced
+   from `verdict_manifest.json` `effective_tag`**, not from the verifier's
+   prose `Evidence Tag` field. v2.0.8 (P3): the driver writes
+   `verdict_manifest.json` after mechanical PoC execution. For each finding
+   it records:
+   - `mechanical_status`: PASS / FAIL / NO_TEST_FILE / etc.
+   - `verifier_prose_tag`: what the verifier WROTE.
+   - `integrity_state`: CONSISTENT | INFLATED_PROSE | MECHANICAL_UNAVAILABLE.
+   - `effective_tag`: the authoritative evidence tag (mechanical truth
+     wins; inflated prose gets downgraded to `[CODE-TRACE] [INTEGRITY-DOWNGRADE]`).
+   When `integrity_state == INFLATED_PROSE`, the verifier claimed proof
+   that mechanical execution could NOT confirm — weigh the finding using
+   the downgraded `effective_tag`, NOT the inflated prose claim.
 2. `[CODE-TRACE]` with real constants outweighs speculation.
 3. Concrete defense (code-level mitigation) outweighs "the protocol could add a
    timelock".
@@ -157,19 +166,19 @@ In Thorough mode, this step MUST execute regardless of whether all PoCs passed,
 the codebase is small, findings seem well-characterized, or context budget feels
 limited.
 
-Skipping Phase 5.1 in Thorough mode is a WORKFLOW VIOLATION logged to
+Skipping this phase in Thorough mode is a WORKFLOW VIOLATION logged to
 `{SCRATCHPAD}/violations.md`.
 
 ---
 
 ## Artifact Verification
 
-Before spawning ANY Phase 6 report agents, verify:
+Before returning, verify:
 
 1. `skeptic_findings.md` contains a section for every manifest finding ID.
 2. `skeptic_judge_decisions.md` contains a row for every manifest finding ID.
 
-If any entry is missing, repair the aggregate files before proceeding to Phase 6.
+If any entry is missing, repair the aggregate files before returning.
 
 ---
 

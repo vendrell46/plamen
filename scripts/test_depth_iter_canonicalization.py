@@ -158,3 +158,125 @@ def test_canonicalizer_handles_iter3_too(tmp_path: Path):
     renamed = D._canonicalize_depth_iter_filenames(sp)
     assert len(renamed) == 1
     assert (sp / "depth_iter3_targeted_findings.md").exists()
+
+
+# --- Widened canonicalizer: token-decomposition variant matrix ------------
+# The DODO audit (May 2026) burned a $4 opus depth retry because the
+# orchestrator wrote `depth_state_trace_iteration2_findings.md` — the
+# iteration token mid-string and spelled out, which neither the prefix-only
+# canonicalizer nor the iter2 gate glob recognized. The canonicalizer was
+# rewritten to DECOMPOSE the filename (find the iteration token, lift N,
+# treat the rest as role) rather than enumerate variants. These tests lock
+# in every plausible ordering/spelling the orchestrator has produced or
+# could produce.
+
+
+def test_canonicalizer_variant_matrix(tmp_path: Path):
+    """Every iteration-token variant rewrites to depth_iter{N}_{role}_findings.md."""
+    cases = {
+        # role-first, iteration spelled out (the exact DODO failure)
+        "depth_state_trace_iteration2_findings.md":
+            "depth_iter2_state_trace_findings.md",
+        # iteration token in prefix position, spelled out
+        "depth_iteration2_token_flow_findings.md":
+            "depth_iter2_token_flow_findings.md",
+        # role-first, abbreviated, no _findings suffix
+        "depth_edge_case_iter2.md":
+            "depth_iter2_edge_case_findings.md",
+        # underscore before the digit
+        "depth_external_iter_2_findings.md":
+            "depth_iter2_external_findings.md",
+        # iter3, role-first, spelled out
+        "depth_targeted_iteration3.md":
+            "depth_iter3_targeted_findings.md",
+        # canonical prefix, missing _findings (legacy variant 1)
+        "depth_iter2_state_trace.md":
+            "depth_iter2_state_trace_findings.md",
+    }
+    for src_name, expected in cases.items():
+        case_dir = tmp_path / src_name.replace(".md", "")
+        case_dir.mkdir()
+        _write(case_dir / src_name, f"content-of-{src_name}")
+        D._canonicalize_depth_iter_filenames(case_dir)
+        produced = sorted(p.name for p in case_dir.glob("*.md"))
+        assert produced == [expected], (
+            f"{src_name}: expected [{expected}], got {produced}"
+        )
+
+
+def test_canonicalizer_protects_non_iter_depth_files(tmp_path: Path):
+    """iter1 base files, DA-form files, and lifecycle files are never renamed."""
+    sp = tmp_path / ".scratchpad"
+    sp.mkdir()
+    protected = [
+        # iter1 base findings — no iteration token
+        "depth_state_trace_findings.md",
+        "depth_token_flow_findings.md",
+        "depth_edge_case_findings.md",
+        "depth_external_findings.md",
+        # Devil's-Advocate iteration form — separate recognized namespace
+        "depth_da_state_trace_findings.md",
+        "depth_da3_token_flow_findings.md",
+        # depth lifecycle / coverage files
+        "depth_exit.md",
+        "depth_candidates.md",
+        "depth_promotion_receipt.md",
+        "depth_coverage_state_trace.md",
+        # already canonical
+        "depth_iter2_state_trace_findings.md",
+    ]
+    for n in protected:
+        _write(sp / n, "protected")
+    renamed = D._canonicalize_depth_iter_filenames(sp)
+    assert renamed == [], f"protected files were renamed: {renamed}"
+    for n in protected:
+        assert (sp / n).exists(), f"{n} disappeared"
+
+
+def test_iter2_gate_tolerates_midstring_iteration_variant(tmp_path: Path):
+    """The iter2-mandatory gate's defense-in-depth glob accepts the
+    mid-string `_iteration2_` variant even if canonicalization didn't run."""
+    sp = tmp_path / ".scratchpad"
+    sp.mkdir()
+    _seed_uncertain_finding_inputs(sp)
+    # Pre-canonicalization filename — gate must still recognize it
+    _write(sp / "depth_state_trace_iteration2_findings.md", "iter2 work")
+    issues = V._validate_confidence_iter2_mandatory(sp)
+    assert issues == [], (
+        f"gate should accept mid-string iteration2 variant, got: {issues}"
+    )
+
+
+def test_expected_roles_excludes_uncanonicalized_iteration_variant(tmp_path: Path):
+    """`_expected_depth_agent_roles` must not mis-parse an un-canonicalized
+    `depth_<role>_iteration2_findings.md` as a phantom role.
+
+    Direct regression for the DODO failure log's second symptom:
+      `[depth] graph consumption: depth_edge_case_iteration2 references 0/4`
+    — `iteration2` does not contain the substring `iter2`, so the exclusion
+    token list must list both spellings.
+    """
+    from plamen_parsers import _expected_depth_agent_roles
+
+    sp = tmp_path / ".scratchpad"
+    sp.mkdir()
+    # Canonical iter1 base files — these ARE real roles
+    _write(sp / "depth_state_trace_findings.md", "iter1")
+    _write(sp / "depth_token_flow_findings.md", "iter1")
+    # Un-canonicalized iteration2/3 variants — must NOT become roles
+    _write(sp / "depth_edge_case_iteration2_findings.md", "iter2")
+    _write(sp / "depth_external_iteration3_findings.md", "iter3")
+    # Canonical iter2 form — also excluded
+    _write(sp / "depth_iter2_state_trace_findings.md", "iter2-canonical")
+
+    roles = _expected_depth_agent_roles(sp)
+    assert "state_trace" in roles
+    assert "token_flow" in roles
+    assert not any("iteration2" in r for r in roles), (
+        f"phantom iteration2 role leaked: {roles}"
+    )
+    assert not any("iteration3" in r for r in roles), (
+        f"phantom iteration3 role leaked: {roles}"
+    )
+    assert "edge_case_iteration2" not in roles
+    assert "external_iteration3" not in roles

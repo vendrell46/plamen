@@ -192,6 +192,7 @@ config = {
     "pipeline": "sc",
     "language": LANGUAGE,   # "evm" | "solana" | "soroban" | "aptos" | "sui"
     "cli_backend": "claude",
+    "claude_exec_mode": "pty",
     "docs_path": DOCS_PATH or "",
     "scope_file": SCOPE_FILE or "",
     "scope_notes": SCOPE_NOTES or "",

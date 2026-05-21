@@ -27,6 +27,10 @@ __all__ = [
     "_L1_DEPTH_AGENT_ROLES",
     "_L1_SKILL_BASE",
     "_L1_SKILL_DEPTH_ROUTING",
+    "_PLAMEN_EXECUTION_CONTRACT_CLAUDE",
+    "_PLAMEN_EXECUTION_CONTRACT_CODEX",
+    "PLAMEN_STUB_SENTINEL",
+    "_render_reservation_header",
     "_SECTION_HEADER_RE",
     "_build_graph_sweeps_artifact_directive",
     "_build_l1_depth_skill_injection",
@@ -34,9 +38,13 @@ __all__ = [
     "_find_prompt_phase_boundary_violations",
     "_glob_to_regex",
     "_inline_stripped_rescan_prompt",
+    "_is_direct_execution_phase",
     "_parse_l1_required_skills",
+    "_phase_uses_task",
     "_prune_l1_verify_shard_prompt",
     "_prune_sc_verify_shard_prompt",
+    "_render_execution_contract",
+    "_render_id_ledger_directive",
     "_render_expected_output_block",
     "_resolve_l1_skill_paths",
     "build_phase_prompt",
@@ -438,6 +446,212 @@ def _is_direct_execution_phase(phase_name: str, pipeline: str,
     return False
 
 
+def _phase_uses_task(phase_name: str, pipeline: str, *, backend: str = "") -> bool:
+    """v2.0.3 (A1): True iff the phase's prompt instructs the subprocess to
+    spawn parallel agents (Task on Claude, spawn_agent on Codex).
+
+    Backend-aware: signature mirrors _is_direct_execution_phase. The predicate
+    is the inverse of direct-execution — a phase either runs as a single
+    bounded reducer/formatter OR it fans out into parallel sub-agents.
+    Multi-agent phases need the PLAMEN V2 EXECUTION CONTRACT injected so
+    the LLM cannot orphan its agents via background mode.
+    """
+    return not _is_direct_execution_phase(phase_name, pipeline, backend=backend)
+
+
+# v2.0.3 (A1): PLAMEN V2 EXECUTION CONTRACT — two backend-specific variants.
+# Injected by build_phase_prompt into every Task-using phase prompt. Source
+# of truth for the single-turn / no-background / no-wave contract. Markdown
+# templates that hand-roll equivalent directives are NOT updated here —
+# Phase B's source-of-truth audit migrates them to reference these constants.
+_PLAMEN_EXECUTION_CONTRACT_CLAUDE = """\
+## PLAMEN V2 EXECUTION CONTRACT (MANDATORY -- overrides any conflicting Task tool guidance below)
+
+This subprocess runs in `claude -p` single-turn mode. There is exactly ONE turn.
+When you call end_turn (implicit when your message completes), the subprocess
+exits and any in-flight background agents are killed without their output
+being collected.
+
+Hard rules:
+
+1. **All Task calls MUST be foreground (synchronous).** Do NOT pass
+   `run_in_background: true` to any Task invocation. The Claude Code
+   documentation describes background mode as a valid option; in V2
+   subprocess mode it is FORBIDDEN.
+
+2. **Do NOT plan in "Wave 1 / Wave 2" terms.** You have one wave. If your
+   assigned section describes multiple waves, collapse them into a single
+   set of parallel Task calls in a single message.
+
+3. **Do NOT end_turn until every spawned Task has returned a result.**
+   Emitting a "Waiting for completion" message and then exiting is the
+   same as orphaning the agents -- they are killed when the subprocess
+   exits.
+
+4. **WRITE-THEN-VERIFY's reservation header is for crash recovery, not
+   for background-agent reservation.** A file containing only its header
+   (e.g. `# Depth State Trace Findings\\n`) is a stub. The driver's
+   substance gate treats it as missing.
+
+5. **Stay inside this phase's expected_artifacts.** The driver will
+   quarantine later-phase writes and treat them as containment violations.
+"""
+
+_PLAMEN_EXECUTION_CONTRACT_CODEX = """\
+## PLAMEN V2 EXECUTION CONTRACT (MANDATORY)
+
+This subprocess runs as a single Codex `exec` invocation. There is exactly ONE
+exec. When the exec exits, in-flight `spawn_agent` calls that have not been
+collected via `wait_agent` are lost; their output files remain as headers only.
+
+Hard rules:
+
+1. **After every `spawn_agent` call, you MUST eventually call `wait_agent`
+   for that agent before exec exits.** Do NOT spawn-and-exit -- the agent
+   is killed when the exec exits.
+
+2. **Do NOT plan in waves.** Spawn all parallel work in one block, then
+   `wait_agent` on all of them before exit.
+
+3. **WRITE-THEN-VERIFY's reservation header is for crash recovery only.**
+   A file containing only its header is a stub. The driver's substance
+   gate treats it as missing.
+
+4. **Stay inside this phase's expected_artifacts.** Later-phase writes
+   are quarantined as containment violations.
+"""
+
+
+def _render_id_ledger_directive(phase_name: str, scratchpad: Path) -> str:
+    """v2.0.6 (P2.3): emit the ID-ledger allocation directive for chain
+    phases.
+
+    The directive lists IDs already allocated by upstream phases / prior
+    attempts (read from `_id_ledger.json`) and the next-available number
+    per prefix. Chain Agent 1 / Agent 2 must:
+      - REUSE existing IDs when the grouping has the same root cause.
+      - Allocate from the next-available pool for new groupings.
+      - NEVER re-mint an existing ID for different content (the driver
+        post-phase collision gate hard-fails on this).
+
+    Returns "" when the ledger is empty or the phase is not chain.
+    """
+    if phase_name not in ("chain", "chain_agent2"):
+        return ""
+    try:
+        from plamen_parsers import (
+            id_ledger_all_records, id_ledger_next_available,
+        )
+    except ImportError:
+        return ""
+    records = id_ledger_all_records(scratchpad)
+    # Chain Agent 1 mints HC/HH/HM/HL/HI/GRP/H- prefixes.
+    # Chain Agent 2 mints CH-.
+    if phase_name == "chain":
+        relevant_prefixes = ("HC-", "HH-", "HM-", "HL-", "HI-", "GRP-", "H-")
+    else:  # chain_agent2
+        relevant_prefixes = ("CH-",)
+
+    # Allocations relevant for this phase's directive: every record
+    # whose ID starts with a relevant prefix (inventory's INV-* are NOT
+    # in chain's prefix set, so they don't pollute the directive).
+    allocated = [r for r in records
+                 if any(r.get("id", "").upper().startswith(p)
+                        for p in relevant_prefixes)]
+    next_for_prefix = {
+        p: id_ledger_next_available(scratchpad, p) for p in relevant_prefixes
+    }
+
+    lines = [
+        "## ID LEDGER (driver-allocated; STRICT)",
+        "",
+        "The driver maintains a canonical ID ledger at `_id_ledger.json`. "
+        "Every ID minted in this audit is recorded with its allocating phase "
+        "and a content hash. The driver runs a BLOCKING post-phase gate that "
+        "fails this phase if you re-mint an existing ID with DIFFERENT content.",
+        "",
+    ]
+    if allocated:
+        lines.append("### Already-allocated IDs (DO NOT re-mint with different content)")
+        lines.append("")
+        lines.append("| ID | Owner Phase / Attempt | Title Preview |")
+        lines.append("|----|------------------------|----------------|")
+        for r in allocated[:200]:  # cap to keep prompt bounded
+            fid = r.get("id", "?")
+            owner = (
+                f"{r.get('owner_phase','?')} / a{r.get('owner_attempt','?')}"
+            )
+            preview = (r.get("title_preview", "") or "")[:80].replace("|", "\\|")
+            lines.append(f"| {fid} | {owner} | {preview} |")
+        if len(allocated) > 200:
+            lines.append(f"| ... | ... | (+{len(allocated) - 200} more allocations) |")
+        lines.append("")
+    else:
+        lines.append("(No prior allocations in this phase's prefix space.)")
+        lines.append("")
+
+    lines.append("### Next-available numbers (use these for NEW groupings)")
+    lines.append("")
+    for p, nxt in next_for_prefix.items():
+        if nxt:
+            lines.append(f"- Next `{p}` = `{nxt}`")
+    lines.append("")
+    lines.extend([
+        "### Allocation rules",
+        "",
+        "1. If your grouping has the SAME root cause as an already-allocated "
+        "ID, REUSE that ID (same number, same title scope).",
+        "2. If your grouping is NEW, mint the next-available number for the "
+        "prefix.",
+        "3. NEVER reuse an existing ID for different content. The driver's "
+        "post-phase ledger gate will FAIL the phase if you do; the retry "
+        "hint will list the offending collisions.",
+        "",
+    ])
+    return "\n".join(lines)
+
+
+def _render_execution_contract(phase_name: str, pipeline: str, *,
+                                backend: str = "claude") -> str:
+    """v2.0.3 (A1): return the PLAMEN V2 EXECUTION CONTRACT block for the
+    phase, or "" if the phase is direct-execution (no parallel agents).
+
+    Backend dispatch: Claude → Task/run_in_background variant.
+    Codex → spawn_agent/wait_agent variant.
+    """
+    if not _phase_uses_task(phase_name, pipeline, backend=backend):
+        return ""
+    if backend == "codex":
+        return _PLAMEN_EXECUTION_CONTRACT_CODEX
+    return _PLAMEN_EXECUTION_CONTRACT_CLAUDE
+
+
+# v2.0.5 (B2): WRITE-THEN-VERIFY sentinel comment. A file containing only
+# its header + this sentinel is UNAMBIGUOUSLY a stub. The substance gate
+# (`_depth_artifact_is_stub`) treats the sentinel as a definite stub
+# marker; legacy audits without the sentinel fall back to existing
+# size/shape heuristics.
+PLAMEN_STUB_SENTINEL = (
+    "<!-- PLAMEN-STUB: header-only reservation, content to follow -->"
+)
+
+
+def _render_reservation_header(title: str) -> str:
+    """v2.0.5 (B2): generate the canonical WRITE-THEN-VERIFY reservation
+    header that subagents write as their FIRST ACTION. The PLAMEN-STUB
+    sentinel makes the header-only state unambiguous to the driver's
+    substance gate.
+
+    Source-of-truth for all reservation injection sites. Markdown
+    templates that hand-roll the header should be migrated to reference
+    this function (B2 prompt audit). Backward-compatible: legacy files
+    without the sentinel are still classified by the existing size/shape
+    heuristic in `_depth_artifact_is_stub`.
+    """
+    return f"# {title}\n{PLAMEN_STUB_SENTINEL}\n"
+
+
+
 _STANDALONE_V2_DIR = plamen_home() / "prompts" / "shared" / "v2"
 
 _STANDALONE_PROMPT_MAP: dict[str, str] = {
@@ -509,6 +723,11 @@ _STANDALONE_PROMPT_MAP: dict[str, str] = {
     "depth": "phase4b-depth.md",
     "attention_repair": "phase4b4-attention-repair.md",
     "invariants": "phase4a5-invariants.md",
+    # v2.8.8: Pass 2 recursive gap trace. V1 ran this in Thorough but the
+    # V1→V2 refactor dropped the phase definition while leaving the prompt
+    # and mode-matrix references intact. Wiring it now via a standalone
+    # phase entry (see SC_PHASES / L1_PHASES `invariants_p2`).
+    "invariants_p2": "phase4a5-invariants-p2.md",
     "rag_sweep": "phase4b5-rag-sweep.md",
     # sc_semantic_dedup and semantic_dedup: NOT mapped here.
     # Their cost directives point the agent to read phase4e-semantic-dedup.md
@@ -516,10 +735,25 @@ _STANDALONE_PROMPT_MAP: dict[str, str] = {
     # Both use _OVERRIDE_SELF_CONTAINED_PHASES instead.
     "chain": "phase4c-chain-agent1.md",
     "chain_agent2": "phase4c-chain-agent2.md",
+    # v2.8.8: Iteration 2 cross-class composition. Same V1→V2 wiring gap
+    # class as invariants_p2: prompt file existed at this path but no
+    # Phase entry consumed it. Driver pre-check (skip if 0 unexplored
+    # cross-class Medium+ pairs) runs before LLM spawn.
+    "chain_iter2": "phase4c-chain-iter2.md",
+    # v2.8.8: Phase 5.5 post-verification extraction. Same V1→V2 wiring
+    # gap. The documentation at commands/plamen.md:1224 describes
+    # scanning verify_*.md for [VER-NEW-*] observations; no driver
+    # phase consumed it. Sonnet, Thorough-only, soft phase.
+    "post_verify_extract": "phase5_5-post-verify-extract.md",
     "skeptic": "phase5-skeptic.md",
     "crossbatch": "phase5-crossbatch.md",
     "report_index": "phase6a-report-index.md",
     "report_assemble": "phase6c-assembler.md",
+    # Phase 5b mechanical PoC verification — Python-native; stub prompt
+    # exists so build_phase_prompt doesn't crash. Driver short-circuits
+    # this phase to mechanical_verify.run_phase5b_mechanical_verify().
+    "sc_mechanical_verify": "phase5b-mechanical-verify.md",
+    "mechanical_verify": "phase5b-mechanical-verify.md",
 
     # â"€â"€â"€ Supplementary (depth sub-agents read these directly) â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€â"€
     "scoring": "phase4b-scoring.md",
@@ -910,6 +1144,67 @@ def _sanitize_breadth_forward_refs(text: str) -> str:
 
 
 def _render_forbidden_output_block(phase_name: str) -> str:
+    # v2.0.10 (P4.2): explicit forbidden-output block per Task-using phase.
+    # Pre-v2.0.10 this was depth-only — breadth/inventory/rescan got nothing
+    # and the LLM had to infer scope from prose alone, which the DODO audit
+    # showed is unreliable (analysis_percontract_3.md leaked from breadth).
+    if phase_name == "breadth":
+        return """## FORBIDDEN OUTPUT FILES (HARD PHASE BOUNDARY)
+
+Breadth owns only its assigned `analysis_<focus_area>.md` files derived from
+`spawn_manifest.md`. The subprocess and every Task subagent it spawns MUST
+NOT write any of the following:
+
+- MUST NOT write `analysis_rescan_*.md` (later phase — rescan owns these in a separate subprocess).
+- MUST NOT write `analysis_percontract_*.md` (later phase — rescan / per-contract pass).
+- MUST NOT write `findings_inventory.md` (later phase — inventory owns this).
+- MUST NOT write `findings_inventory_chunk_*.md` (later phase — inventory_chunk_* owns these).
+- MUST NOT write `semantic_invariants.md` (later phase — invariants).
+- MUST NOT write `depth_*_findings.md` (later phase — depth).
+- MUST NOT write `blind_spot_*_findings.md` (later phase — depth scanners).
+- MUST NOT write `niche_*_findings.md` (later phase — niche agents).
+- MUST NOT write `validation_sweep_findings.md` (later phase — depth validation).
+- MUST NOT write `perturbation_findings.md` (later phase — perturbation).
+- MUST NOT write `rag_validation.md` (later phase — RAG sweep).
+- MUST NOT write `hypotheses.md` (later phase — chain).
+- MUST NOT write `chain_hypotheses.md` (later phase — chain).
+- MUST NOT write `finding_mapping.md` (later phase — chain).
+- MUST NOT write `enabler_results.md` (later phase — chain).
+- MUST NOT write `verify_core.md` (later phase — verification aggregate).
+- MUST NOT write any `verify_*.md` file (later phase — verification).
+- MUST NOT write `verification_queue.md` (later phase — queue).
+- MUST NOT write `skeptic_findings.md` (later phase — skeptic).
+- MUST NOT write `cross_batch_consistency.md` (later phase — crossbatch).
+- MUST NOT write `report_index.md` (later phase — report index).
+- MUST NOT write any `report_*.md` body file (later phase — report).
+- MUST NOT write `AUDIT_REPORT.md` (later phase — final report).
+
+Concrete boundary rule: you do NOT write per-contract or rescan outputs from
+the breadth subprocess. The driver launches those in a separate later phase.
+Do NOT execute Phase 3b/3c, Phase 4, Phase 5, or Phase 6 work from breadth.
+"""
+    if phase_name == "rescan":
+        return """## FORBIDDEN OUTPUT FILES (HARD PHASE BOUNDARY)
+
+Rescan owns only `analysis_rescan_*.md` and `analysis_percontract_*.md`. The
+subprocess MUST NOT write any of the following:
+
+- MUST NOT overwrite breadth's `analysis_<focus_area>.md` files (those belong
+  to a separate phase — breadth owns them).
+- MUST NOT write `findings_inventory.md` (later phase — inventory).
+- MUST NOT write `semantic_invariants.md` (later phase — invariants).
+- MUST NOT write `depth_*_findings.md` (later phase — depth).
+- MUST NOT write `blind_spot_*_findings.md` (later phase — depth scanners).
+- MUST NOT write `niche_*_findings.md` (later phase — niche agents).
+- MUST NOT write `hypotheses.md` (later phase — chain).
+- MUST NOT write `chain_*.md` (later phase — chain).
+- MUST NOT write `verify_*.md` (later phase — verification).
+- MUST NOT write `skeptic_*.md` (later phase — skeptic).
+- MUST NOT write `report_*.md` (later phase — report).
+- MUST NOT write `AUDIT_REPORT.md` (later phase — final report).
+
+Do NOT execute Phase 4, Phase 5, or Phase 6 work from rescan.
+"""
     if phase_name != "depth":
         return ""
     forbidden = [
@@ -1913,6 +2208,8 @@ def build_phase_prompt(v1_prompt: Path, phase: Phase, config: dict) -> str:
         standalone = _resolve_standalone_prompt(phase.name)
         if standalone:
             full = standalone.read_text(encoding="utf-8")
+            if phase.name in ("breadth", "rescan"):
+                full = re.sub(r"(?m)^<!-- BUILD-STRIP:.*?-->\r?\n?", "", full)
             using_standalone_body = True
             standalone_source_name = standalone.name
             log.debug(f"[{phase.name}] Using standalone prompt: {standalone.name}")
@@ -1999,6 +2296,20 @@ def build_phase_prompt(v1_prompt: Path, phase: Phase, config: dict) -> str:
     breadth_scope_directive = ""
     recon_scope_directive = ""
     forbidden_output_directive = _render_forbidden_output_block(phase.name)
+    # v2.0.3 (A1): PLAMEN V2 EXECUTION CONTRACT -- single-turn / no-background
+    # / no-wave directive injected only into Task-using (multi-agent) phases.
+    # Backend-aware via config["cli_backend"]: Claude variant uses Task tool
+    # vocabulary, Codex variant uses spawn_agent/wait_agent vocabulary.
+    execution_contract_directive = _render_execution_contract(
+        phase.name, config.get("pipeline", "sc"),
+        backend=config.get("cli_backend", "claude"),
+    )
+    # v2.0.6 (P2.3): ID ledger directive for chain phases. Lists
+    # already-allocated IDs and next-available numbers so the LLM does not
+    # re-mint an existing ID with different content.
+    id_ledger_directive = _render_id_ledger_directive(
+        phase.name, Path(config["scratchpad"])
+    )
     subsystem_scope_directive = ""
     prior_phase_outputs_block = f"""
 ## PRIOR PHASE OUTPUTS
@@ -2266,10 +2577,26 @@ Completion checklist before returning:
 - The only file you wrote is `{output}`.
 
 Do local dedup only within this shard. Do not read unrelated `analysis_*.md`
-files. **FORBIDDEN FILE**: Do NOT write `findings_inventory.md` — that file is
-owned by the later inventory-merge phase. Writing it will trigger a phase
-containment violation and force a retry. After the checklist passes, return one
-line and stop.
+files.
+
+**FORBIDDEN FILES** (v2.0.4 — derived mechanically from the inventory
+phase graph; writing any of these triggers a phase containment violation):
+
+- `findings_inventory.md` — owned by the later inventory-merge phase.
+- `findings_inventory_chunk_a.md`, `findings_inventory_chunk_b.md`,
+  `findings_inventory_chunk_c.md` (every chunk OTHER than `{output}`) —
+  owned by sibling `inventory_chunk_*` phases. The driver may ADOPT a
+  valid sibling chunk if you accidentally write one, but the safest
+  path is to write ONLY `{output}` and stop.
+- `semantic_invariants.md` — owned by the later `invariants` phase
+  (Phase 4a.5).
+
+If your assigned input set tempts you to keep working past your own
+chunk's checklist, STOP. Each sibling chunk has its own assigned input
+set and its own subprocess. Cross-chunk dedup happens in the merge
+phase, not here.
+
+After the checklist passes, return one line and stop.
 """.format(
             files="\n- ".join(shard_files) if shard_files else "(none assigned)",
             l1_inventory_note=l1_inventory_note,
@@ -3200,6 +3527,7 @@ Mandatory rules:
    installed inside your subprocess will block later phases of the V2
    pipeline and must not be activated.
 
+{execution_contract_directive}
 {expected_output_block}
 {context_policy}
 {depth_quality_directive}
@@ -3234,6 +3562,7 @@ agents completed previously, you spawn only the missing 3.
 {inventory_scope_directive}
 {recon_scope_directive}
 {forbidden_output_directive}
+{id_ledger_directive}
 {prior_phase_outputs_block}
 
 ## MCP POLICY
@@ -3241,6 +3570,45 @@ agents completed previously, you spawn only the missing 3.
 When an MCP tool call returns a timeout or fails, record `[MCP: TIMEOUT]`
 and switch to fallback (code analysis, grep, WebSearch). Do NOT retry
 the same MCP call. Claude Code's MCP timeout is 300s.
+
+## READ-PATH DISCIPLINE (MANDATORY -- applies to coordinator AND every Task subagent)
+
+Every filesystem-reading tool call (Bash directory listing, Glob, Grep,
+Read, LS) MUST resolve to a path under either `PROJECT_ROOT` or
+`SCRATCHPAD` as resolved in the CONFIGURATION block above. The audit
+operates on exactly those two roots and nothing else.
+
+Rules:
+
+1. Always prefix paths and globs with `PROJECT_ROOT` or `SCRATCHPAD`.
+   Bare patterns like `**/*.sol` or `*.md` resolve against the
+   subprocess's working directory, which is NOT guaranteed to be the
+   project root. Use `{{PROJECT_ROOT}}/**/*.sol` instead.
+
+2. Never read from paths outside these two roots. Examples of
+   out-of-scope locations regardless of OS: system temp directories,
+   the user home directory, OS package/cache directories, the global
+   Claude config dir, anything reachable via `..` traversal from
+   `PROJECT_ROOT`. If you are unsure whether a path is in scope,
+   resolve it mentally against `PROJECT_ROOT` and `SCRATCHPAD` -- if it
+   isn't a descendant of either, do not touch it.
+
+3. Cap on tool-result size. If a Bash, Glob, Grep, or Read result
+   exceeds ~200 KB or ~1000 entries, abandon that query, do NOT
+   recurse, and switch to a narrower path-prefixed query. A runaway
+   directory listing returns thousands of unrelated filenames and
+   produces nothing useful.
+
+4. Subagent inheritance. When spawning a Task subagent, the coordinator
+   MUST include in the subagent prompt: "Read-path discipline applies:
+   every Read/Bash/Glob/Grep MUST resolve under {{PROJECT_ROOT}} or
+   {{SCRATCHPAD}}." Subagents inherit this rule.
+
+Violation symptom: a single tool result containing thousands of
+unrelated filenames (e.g., OS temp scratch files, system binaries,
+unrelated repos under your home directory) is a violation. Abandon that
+line of investigation, do not summarize the output, and proceed with a
+narrower scope.
 
 ===================================================================
 {begin_prompt_label} (`{begin_prompt_source}`):
@@ -3291,19 +3659,86 @@ the same MCP call. Claude Code's MCP timeout is 300s.
     # SPECIFIC missing items (per Wei et al. 2023 on per-call instructions
     # with concrete deltas). Without this, hollow retries re-produce the
     # same wrong output.
+    #
+    # v2.x SWE-agent linter-revert refinement: for non-accumulate phases on
+    # retry, REPLACE the full prompt with a compact error-context-primary
+    # prompt. The LLM's attention budget was being saturated by 10K+ tokens
+    # of original instructions, leaving the retry hint as a buried header
+    # the agent ignored. Pattern adapted from SWE-agent's ACI (NeurIPS '24)
+    # where parser-error becomes primary context, not a header on top of
+    # the original prompt. Accumulate phases (breadth/rescan/depth) keep
+    # the full prompt + prepended hint because their retry semantics depend
+    # on the RESUMPTION PROTOCOL preserving partial work.
     try:
         scratchpad = Path(config["scratchpad"])
         hint = _read_retry_hint(scratchpad, phase.name)
         if hint:
-            header = (
-                "===================================================================\n"
-                "RETRY HINT (injected by driver -- previous attempt failed gate):\n"
-                "===================================================================\n"
-                f"\n{hint}\n\n"
-                "===================================================================\n"
-                f"END RETRY HINT\n"
-                "===================================================================\n\n"
-            ) + header
+            is_accumulate = phase.name in _ACCUMULATE_ON_RETRY_PHASES
+            if is_accumulate:
+                # Existing prepend behavior (preserves RESUMPTION PROTOCOL semantics)
+                header = (
+                    "===================================================================\n"
+                    "RETRY HINT (injected by driver -- previous attempt failed gate):\n"
+                    "===================================================================\n"
+                    f"\n{hint}\n\n"
+                    "===================================================================\n"
+                    f"END RETRY HINT\n"
+                    "===================================================================\n\n"
+                ) + header
+            else:
+                # Compact retry mode: replace header with error-primary prompt
+                prior_snapshot = (
+                    scratchpad / f"_prompt_{phase.name}.attempt1.md"
+                ).as_posix()
+                try:
+                    expected_block = _render_expected_output_block(phase, scratchpad)
+                except Exception:
+                    expected_block = ""
+                _project_root = config.get("project_root", "(unknown)")
+                _scratchpad_str = config.get("scratchpad", str(scratchpad))
+                _language = config.get("language", "unknown")
+                _mode = config.get("mode", "unknown")
+                _pipeline = config.get("pipeline", "sc")
+                compact = (
+                    f"# RETRY ATTEMPT (driver-detected gate failure on previous attempt)\n\n"
+                    f"## Configuration\n\n"
+                    f"- PROJECT_PATH: {_project_root}\n"
+                    f"- PROJECT_ROOT: {_project_root}\n"
+                    f"- SCRATCHPAD: {_scratchpad_str}\n"
+                    f"- LANGUAGE: {_language}\n"
+                    f"- MODE: {_mode}\n"
+                    f"- PIPELINE: {_pipeline}\n"
+                    f"- LAUNCHED_FROM_WRAPPER: true\n\n"
+                    f"## What the previous attempt got wrong\n\n"
+                    f"{hint}\n\n"
+                    f"## Your task on this retry\n\n"
+                    f"Address EACH error above. Your previous artifact(s) for this "
+                    f"phase have been moved to `{_scratchpad_str}/_retry_quarantine/"
+                    f"{phase.name}/` so the RESUMPTION PROTOCOL cannot accidentally "
+                    f"reuse incorrect output. Re-emit the affected file(s) from scratch.\n\n"
+                    f"**Full original prompt (for reference if needed)**: "
+                    f"`{prior_snapshot}` -- read it ONLY if the errors above reference "
+                    f"something you don't recognize. The items above are the ONLY "
+                    f"things you need to fix.\n\n"
+                    f"{expected_block}\n\n"
+                    f"## Critical phase scope (HARD)\n\n"
+                    f"You are running INSIDE a single phase subprocess dispatched by "
+                    f"`plamen_driver.py`. \n\n"
+                    f"1. Do NOT execute work belonging to other phases.\n"
+                    f"2. Do NOT initialize any V1 watchdog / phase_gate / stop-hook.\n"
+                    f"3. Use the Task tool only for subagent work this phase's "
+                    f"original prompt explicitly directs.\n"
+                    f"4. When the affected file(s) listed above are re-emitted to "
+                    f"disk with correct content addressing every error in the "
+                    f"'What the previous attempt got wrong' section, end the "
+                    f"conversation immediately. Do NOT proceed to subsequent phases.\n"
+                    f"5. Do NOT call AskUserQuestion or pause for confirmation.\n\n"
+                    f"## MCP Policy\n\n"
+                    f"When an MCP tool call returns a timeout or fails, record "
+                    f"`[MCP: TIMEOUT]` and switch to fallback (code analysis, grep, "
+                    f"WebSearch). Do NOT retry the same MCP call.\n"
+                )
+                header = compact
     except Exception as e:
         log.debug(f"[{phase.name}] retry hint skipped: {e}")
     boundary_violations = _find_prompt_phase_boundary_violations(

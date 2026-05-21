@@ -490,6 +490,16 @@ class Phase:
                                        # expected_artifacts. Use for naming-convention flux
                                        # (e.g. verify_F_*.md vs verify_F-*.md) where either
                                        # shape alone should count as complete.
+    appends_existing_artifact: bool = False
+                                       # True when this phase's expected_artifacts are written
+                                       # by an earlier phase and this phase only APPENDS new
+                                       # sections to them. Disables the rate-limit-retry savings
+                                       # guard for this phase, because the guard's gate_passes()
+                                       # check sees the file already on disk and would skip the
+                                       # retry — but the file is missing this phase's content.
+                                       # Set on Phase 4a.5 Pass 2 (`invariants_p2`), which
+                                       # appends a `## Pass 2:` section onto `semantic_invariants.md`
+                                       # produced by the earlier `invariants` phase.
     example_tokens: list = field(default_factory=list)
                                        # Per-phase authoritative substitution tokens for `*` in
                                        # expected_artifacts globs. When set, `_render_expected_
@@ -917,6 +927,18 @@ SC_PHASES = [
     Phase("invariants", ["Phase 4a.5: Semantic Invariant"],
           ["semantic_invariants.md"],
           base_timeout_s=4800, modes={"core", "thorough"}, critical=False),
+    # v2.8.8: Pass 2 recursive gap trace. Thorough only. Reads Pass 1's
+    # semantic_invariants.md and appends a `## Pass 2:` section with
+    # CONFIRMED_GAP / GUARDED_GAP / BRANCH_ASYMMETRY classifications.
+    # Soft phase (critical=False) — Pass 2 enriches depth-agent priming;
+    # if it times out, depth still runs against Pass 1 data only.
+    # Mode-gated to Thorough because the recursive trace adds ~$2-4 of
+    # sonnet time and the bug class it catches (branch asymmetries,
+    # cross-field gaps) is most valuable on full-depth audits.
+    Phase("invariants_p2", ["Phase 4a.5 Pass 2: Recursive Semantic Gap Trace"],
+          ["semantic_invariants.md"],
+          base_timeout_s=2400, modes={"thorough"}, critical=False,
+          model="sonnet", appends_existing_artifact=True),
     Phase("depth", ["Phase 4b: Adaptive Depth Loop"],
           ["depth_*_findings.md"],
           base_timeout_s=7200, model="opus", critical=True,
@@ -941,6 +963,15 @@ SC_PHASES = [
     Phase("chain_agent2", ["Phase 4: Synthesis, Adaptive Depth, Chain Analysis"],
           ["chain_hypotheses.md", "composition_coverage.md", "synthesis_full.md"],
           base_timeout_s=2400, critical=True),
+    # v2.8.8: Iteration 2 chain composition. Thorough only. Skipped via
+    # driver pre-check when composition_coverage.md has zero unexplored
+    # cross-class Medium+ pairs. Soft phase — failure → log, proceed.
+    # Appends new chains to chain_hypotheses.md + writes chain_iteration2.md
+    # as a new artifact.
+    Phase("chain_iter2", ["Phase 4c Iteration 2: Chain Composition Re-evaluation"],
+          ["chain_iteration2.md"],
+          base_timeout_s=1800, modes={"thorough"}, critical=False,
+          model="sonnet"),
     # v2.4.1: SC verify sharded like L1. Monolithic verify phase hit 2700s
     # ceiling on 81 hypotheses (3 .sol files, Thorough mode), verifying only
     # ~32/81 before timeout -> parity check failure -> pipeline halt. Sharding
@@ -999,6 +1030,28 @@ SC_PHASES = [
     Phase("sc_verify_aggregate", ["Phase 5: Verification"],
           ["verify_core.md"],
           base_timeout_s=900, critical=True, model="haiku"),
+    # Phase 5b: Mechanical PoC verification (Python-native, ON by default).
+    # Runs the LLM-written PoC tests via forge/cargo/aptos/sui/go and stamps
+    # mechanical evidence tags into verify_*.md BEFORE skeptic/crossbatch read.
+    # No LLM cost — pure subprocess invocation. Opt-out via
+    # MECHANICAL_VERIFY=false env or config["mechanical_verify"]=False.
+    # Failure mode: DEGRADED (warning), never HALT — LLM tags are preserved
+    # when the toolchain is unavailable.
+    Phase("sc_mechanical_verify", ["Phase 5b: Mechanical PoC Verification"],
+          ["mechanical_verify_manifest.md"],
+          base_timeout_s=2400, critical=False, model="sonnet",
+          min_artifacts_count=1),
+    # v2.8.8: Phase 5.5 post-verification finding extraction. Thorough
+    # only. Soft phase — scans verify_*.md for [VER-NEW-*] observations
+    # and dedupes vs existing inventory/hypotheses. New observations
+    # promoted to hypotheses.md (Verdict: NEW_FROM_VERIFY). NOT re-queued
+    # for verification — original verifier's evidence stands. If no
+    # [VER-NEW-*] observations exist, the agent returns DONE: 0 quickly.
+    # Runs BEFORE skeptic so promoted findings can be skeptic-reviewed.
+    Phase("post_verify_extract", ["Phase 5.5: Post-Verification Finding Extraction"],
+          ["post_verify_extract.md"],
+          base_timeout_s=1200, modes={"thorough"}, critical=False,
+          model="sonnet"),
     Phase("skeptic", ["Phase 5.1: Skeptic-Judge"],
           ["skeptic_findings.md", "skeptic_judge_decisions.md"],
           base_timeout_s=3600, modes={"thorough"},
@@ -1085,6 +1138,11 @@ L1_PHASES = [
     Phase("invariants", ["Step 4a.5: Semantic Invariants"],
           ["semantic_invariants.md"],
           base_timeout_s=4800, critical=False, modes={"core", "thorough"}),
+    # v2.8.8: Pass 2 — same rationale as SC; see SC_PHASES comment above.
+    Phase("invariants_p2", ["Step 4a.5 Pass 2: Recursive Semantic Gap Trace"],
+          ["semantic_invariants.md"],
+          base_timeout_s=2400, modes={"thorough"}, critical=False,
+          model="sonnet", appends_existing_artifact=True),
     Phase("depth", ["Step 4b: Depth Loop"],
           ["depth_*_findings.md"],
           base_timeout_s=7200, model="opus", critical=True,
@@ -1170,6 +1228,20 @@ L1_PHASES = [
     Phase("verify_aggregate", ["Step 5.6: Aggregate verify_core.md"],
           ["verify_core.md"],
           base_timeout_s=900, critical=True, model="haiku"),
+    # Phase 5b: Mechanical PoC verification (Python-native, ON by default).
+    # L1 mirror of sc_mechanical_verify. Routes via l1_go / l1_rust registry
+    # overlay entries (added at module load by mechanical_verify._ensure_l1_*).
+    # Opt-out via MECHANICAL_VERIFY=false env or
+    # config["mechanical_verify"]=False.
+    Phase("mechanical_verify", ["Step 5.6b: Mechanical PoC Verification"],
+          ["mechanical_verify_manifest.md"],
+          base_timeout_s=2400, critical=False, model="sonnet",
+          min_artifacts_count=1),
+    # v2.8.8: L1 mirror of post_verify_extract (same rationale as SC).
+    Phase("post_verify_extract", ["Step 5.5b: Post-Verification Finding Extraction"],
+          ["post_verify_extract.md"],
+          base_timeout_s=1200, modes={"thorough"}, critical=False,
+          model="sonnet"),
     Phase("skeptic", ["Step 5.5: Skeptic-Judge"],
           ["skeptic_findings.md", "skeptic_judge_decisions.md"],
           base_timeout_s=3600, modes={"thorough"}, critical=True),

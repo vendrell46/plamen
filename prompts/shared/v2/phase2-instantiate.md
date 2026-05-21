@@ -117,18 +117,18 @@ Instead, for each vulnerability class in your methodology:
 Write to {SCRATCHPAD}/analysis_{focus_area}.md
 Use finding IDs: [{PREFIX}-1], [{PREFIX}-2]...
 
-SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agents' output files. Do NOT proceed to subsequent pipeline phases (re-scan, per-contract, inventory, semantic invariants, depth, RAG, chain analysis, verification, report). Return your findings and stop.
+SCOPE: Write ONLY to your assigned output file. Do NOT read or write other agents' output files. Do NOT spawn additional Task subagents. Return your findings and stop.
 ```
 
 ---
 
 ## Step 2c.1: MCP Timeout Directive (MANDATORY — Rule 11)
 
-Every agent prompt that makes MCP tool calls (recon agents, depth agents, chain agents, verifiers, RAG sweep) MUST include this directive at the end of its prompt:
+Every breadth-agent prompt you generate that makes MCP tool calls MUST include this directive at the end of its prompt:
 
 *"When an MCP tool call returns a timeout error or fails, do NOT retry the same call. Record [MCP: TIMEOUT] and skip ALL remaining calls to that provider — switch immediately to fallback (code analysis, grep, WebSearch). Claude Code's tool timeout is set to 300s (5 min) via MCP_TOOL_TIMEOUT in settings.json to accommodate ChromaDB cold start. You cannot cancel a pending call — but you control what happens after the error returns."*
 
-The orchestrator MUST append this text when composing prompts for MCP-calling agents. Agents that do not make MCP calls (pure code analysis breadth agents, report writers) do not need it.
+Append this text when composing prompts for MCP-calling breadth agents. Pure code-analysis breadth agents (no MCP) do not need it.
 
 ---
 

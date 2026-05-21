@@ -1,0 +1,177 @@
+"""Tests for the Pattern 2 compact retry prompt refactor.
+
+When a phase fails its gate, `_write_retry_hint` is called and the next
+attempt's prompt is built via `build_phase_prompt`. For non-accumulate
+phases, the new behavior REPLACES the full prompt with a compact
+error-primary prompt; for accumulate phases (breadth/rescan/depth) the
+existing prepend-to-full-prompt behavior is preserved because their
+RESUMPTION PROTOCOL depends on it.
+"""
+
+from __future__ import annotations
+
+import shutil
+import tempfile
+from pathlib import Path
+
+import pytest
+
+import plamen_prompt as p
+import plamen_validators as v
+from plamen_types import SC_PHASES
+
+
+# --- Fixtures ---------------------------------------------------------------
+
+
+@pytest.fixture
+def scratch_and_project():
+    scratch = Path(tempfile.mkdtemp(prefix="plamen_compret_"))
+    project = Path(tempfile.mkdtemp(prefix="plamen_compret_proj_"))
+    v1 = scratch / "v1.md"
+    # Use realistic section markers so the V1 body extraction has something
+    # to find for accumulate phase tests.
+    v1.write_text(
+        "## Phase 3: Parallel Breadth Analysis\n\n"
+        "Spawn agents in parallel.\n\n"
+        + ("LOTS_OF_ORIGINAL_PROMPT_BODY " * 200)
+        + "\n",
+        encoding="utf-8",
+    )
+    yield scratch, project, v1
+    shutil.rmtree(scratch, ignore_errors=True)
+    shutil.rmtree(project, ignore_errors=True)
+
+
+def _config(scratch: Path, project: Path) -> dict:
+    return {
+        "project_root": str(project),
+        "scratchpad": str(scratch),
+        "language": "evm",
+        "mode": "thorough",
+        "pipeline": "sc",
+        "proven_only": False,
+        "cli_backend": "claude",
+    }
+
+
+# --- Non-accumulate phases: compact retry mode ------------------------------
+
+
+class TestCompactRetryNonAccumulate:
+    def test_retry_hint_triggers_compact_replacement(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "sc_semantic_dedup", "Test hint: missing X, Y, Z.")
+        phase = next(ph for ph in SC_PHASES if ph.name == "sc_semantic_dedup")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        assert prompt.startswith("# RETRY ATTEMPT")
+        # Compact prompt should be SUBSTANTIALLY smaller than the full prompt
+        # (original full prompts are 5-15 KB; compact should be < 5 KB).
+        assert len(prompt) < 6000, f"compact prompt too large: {len(prompt)} bytes"
+
+    def test_hint_appears_in_primary_position(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        unique_hint = "UNIQUE_SENTINEL_ERROR_PHRASE_42"
+        v._write_retry_hint(scratch, "sc_semantic_dedup", f"Test: {unique_hint}")
+        phase = next(ph for ph in SC_PHASES if ph.name == "sc_semantic_dedup")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        # Error context must appear in the first 1500 chars (primary attention zone)
+        idx = prompt.find(unique_hint)
+        assert idx >= 0, "unique sentinel not found in compact prompt"
+        assert idx < 1500, f"sentinel buried at position {idx} (should be < 1500)"
+
+    def test_snapshot_path_is_referenced(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "sc_semantic_dedup", "hint")
+        phase = next(ph for ph in SC_PHASES if ph.name == "sc_semantic_dedup")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        assert "_prompt_sc_semantic_dedup.attempt1.md" in prompt
+
+    def test_quarantine_path_is_referenced(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "sc_semantic_dedup", "hint")
+        phase = next(ph for ph in SC_PHASES if ph.name == "sc_semantic_dedup")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        assert "_retry_quarantine/sc_semantic_dedup" in prompt
+
+    def test_compact_includes_expected_output_section(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "sc_semantic_dedup", "hint")
+        phase = next(ph for ph in SC_PHASES if ph.name == "sc_semantic_dedup")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        # phase has expected_artifacts → block should render
+        assert "EXPECTED OUTPUT FILES" in prompt
+
+    def test_compact_includes_critical_scope_directive(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "sc_semantic_dedup", "hint")
+        phase = next(ph for ph in SC_PHASES if ph.name == "sc_semantic_dedup")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        assert "Critical phase scope" in prompt
+        assert "single phase subprocess" in prompt
+
+    def test_compact_omits_full_v1_body(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "sc_semantic_dedup", "hint")
+        phase = next(ph for ph in SC_PHASES if ph.name == "sc_semantic_dedup")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        # The huge LOTS_OF_ORIGINAL_PROMPT_BODY filler should NOT appear in
+        # the compact prompt — that's the whole point.
+        assert "LOTS_OF_ORIGINAL_PROMPT_BODY" not in prompt
+
+
+# --- Accumulate phases: preserve existing prepend behavior ------------------
+
+
+class TestAccumulatePhasesUnchanged:
+    def test_breadth_retry_uses_prepend_not_compact(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "breadth", "breadth hint")
+        phase = next(ph for ph in SC_PHASES if ph.name == "breadth")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        # Existing prepend format header
+        assert "RETRY HINT (injected by driver" in prompt
+        # Does NOT use the new compact format
+        assert not prompt.startswith("# RETRY ATTEMPT")
+
+    def test_depth_retry_uses_prepend_not_compact(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "depth", "depth hint")
+        phase = next(ph for ph in SC_PHASES if ph.name == "depth")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        assert "RETRY HINT (injected by driver" in prompt
+        assert not prompt.startswith("# RETRY ATTEMPT")
+
+    def test_rescan_retry_uses_prepend_not_compact(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        v._write_retry_hint(scratch, "rescan", "rescan hint")
+        try:
+            phase = next(ph for ph in SC_PHASES if ph.name == "rescan")
+        except StopIteration:
+            pytest.skip("rescan phase not in SC_PHASES")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        assert "RETRY HINT (injected by driver" in prompt
+        assert not prompt.startswith("# RETRY ATTEMPT")
+
+
+# --- Attempt 1 unchanged (no retry hint -> no special branch) ---------------
+
+
+class TestAttempt1Unchanged:
+    def test_attempt1_no_retry_hint_no_compact_path(self, scratch_and_project):
+        scratch, project, v1 = scratch_and_project
+        # NO retry hint written → attempt-1-style prompt
+        phase = next(ph for ph in SC_PHASES if ph.name == "sc_semantic_dedup")
+        prompt = p.build_phase_prompt(v1, phase, _config(scratch, project))
+        assert not prompt.startswith("# RETRY ATTEMPT")
+        assert "RETRY HINT (injected by driver" not in prompt
+
+
+# --- Accumulate phases set integrity check ----------------------------------
+
+
+class TestAccumulateSetIntegrity:
+    def test_accumulate_set_contains_expected_phases(self):
+        assert "breadth" in v._ACCUMULATE_ON_RETRY_PHASES
+        assert "depth" in v._ACCUMULATE_ON_RETRY_PHASES
+        assert "rescan" in v._ACCUMULATE_ON_RETRY_PHASES

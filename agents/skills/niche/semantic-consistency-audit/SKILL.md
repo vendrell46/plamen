@@ -39,6 +39,57 @@ For each CHECK, execute three steps in order:
 2. **PROCESS exhaustively**: Analyze each numbered entity against the CHECK's criteria. Mark each "DONE" or "N/A (reason)" before moving to the next.
 3. **COVERAGE GATE**: Count enumerated vs processed. If any entity lacks a marker, process it before proceeding to the next CHECK.
 
+## Pre-Commit Dimension Enumeration (MANDATORY — fill BEFORE any finding)
+
+The DODO ETH-sentinel-approve regression class: this agent confirmed the
+bug for one of three sibling contracts then **self-refuted across the
+other two in the same paragraph**, because no structure forced per-sibling
+disposition. To prevent that failure mode, every audit run begins with the
+four dimension tables below. Fill them by reading recon artifacts
+(`contract_inventory.md`, `function_summary.md`, `caller_map.md`,
+`attack_surface.md`) — NOT from your own analysis.
+
+```markdown
+## Pre-Commit Dimension Enumeration
+
+### Sibling Set (from contract_inventory.md)
+| Member | In Scope? | Bug-Mirror Candidate? |
+|--------|-----------|----------------------|
+| <contract A> | YES | reference |
+| <contract B> | YES | mirror sibling |
+| <contract C> | YES | mirror sibling |
+
+### Decoded-Field Set (from function_summary.md + source)
+For each function consuming decoded calldata/payload, list every field:
+
+| Field | Type | Origin | Validated? | Trust Class |
+|-------|------|--------|-----------|------------|
+| <field name> | <type> | <calldata/storage/etc> | YES/NO | <UNTRUSTED/SEMI/TRUSTED> |
+
+### Mirror-Direction Set (from caller_map.md mirror pairs)
+| Forward Op | Reverse Op | Both Symmetric? |
+|-----------|-----------|-----------------|
+| <op>      | <op>      | YES/NO          |
+
+### Actor Set (Rule 12 categories from attack_surface.md)
+| Actor                 | Can Reach Subject? | Path |
+|-----------------------|-------------------|------|
+| permissionless        | YES/NO            | <path> |
+| semi-trusted role     | YES/NO            | <path> |
+| natural ops           | YES/NO            | <path> |
+| external event        | YES/NO            | <path> |
+| user action sequence  | YES/NO            | <path> |
+```
+
+**Per-row independence (HARD RULE)**: when you mark a row REPORTED or
+DISMISSED, you cite a `file:line` for THAT row only. A REFUTED verdict on
+row N cannot be evidence for row M. Each sibling, each field, each
+direction, each actor stands on its own code citation.
+
+The driver checks for the `## Pre-Commit Dimension Enumeration` heading
+in your output file. First audit cycle: missing PDE is a WARNING (no
+halt). Future cycles will promote to FAIL with a retry hint.
+
 ## Your Task
 
 ### CHECK 1: Config Variable Unit Consistency

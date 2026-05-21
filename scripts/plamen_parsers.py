@@ -53,6 +53,20 @@ __all__ = [
     "_ID_HYPO_ALTS",
     "_ID_NICHE_ALTS",
     "_ID_TOOL_ALTS",
+    "_parse_skeptic_judge_table",
+    "read_judge_decisions_json_sidecar",
+    "write_judge_decisions_json_sidecar",
+    "_ID_LEDGER_NAME",
+    "_ID_LEDGER_SCHEMA_VERSION",
+    "_id_ledger_load",
+    "_id_ledger_save",
+    "_id_prefix_of",
+    "_title_hash",
+    "id_ledger_register",
+    "id_ledger_next_available",
+    "id_ledger_lookup",
+    "id_ledger_all_for_prefix",
+    "id_ledger_all_records",
     "_HEADING_FINDING_RE",
     "_HTML_ENTITY_MAP",
     "_HTML_ENTITY_RE",
@@ -105,6 +119,7 @@ __all__ = [
     "_extract_finding_signals",
     "_extract_first_tag",
     "_extract_gap_paths_from_markdown",
+    "_extract_verifier_severity_with_adjustment",
     "_extract_h2_section",
     "_extract_ids_from_text",
     "_extract_report_ids_from_body",
@@ -125,6 +140,7 @@ __all__ = [
     "_merge_inventory_entries",
     "_compute_dedup_candidate_pairs",
     "_extract_chain_summaries_compact",
+    "_chain_iter2_has_no_unexplored_pairs",
     "_line_ranges_overlap",
     "_parse_line_range",
     "_shared_anchor_tokens",
@@ -230,9 +246,18 @@ _ID_NICHE_ALTS = (
     r"T22|TF|TPS|TS|TXI|VA|VL|VS|WED|XE|XFER|ZS)-\d+"
 )
 
-# Hypothesis/chain/structural IDs (used in report index mapping)
+# Hypothesis/chain/structural IDs (used in report index mapping).
+# F1 (post-DODO hardening): the SC chain phase emits grouped-by-severity
+# hypothesis IDs `HC-NN` (Critical), `HH-NN` (High), `HM-NN` (Medium),
+# `HL-NN` (Low), `HI-NN` (Informational), plus multi-finding-group `GRP-NN`.
+# Without these, `_normalize_finding_id` returns "" for every grouped queue
+# row, `_validate_verification_queue_inventory_parity` drops them before
+# constituent expansion, and 70%+ of inventory IDs appear "missing" at
+# sc_verify_queue. See ~/.plamen/rules/phase4c-chain-prompt.md for the
+# documented taxonomy.
 _ID_HYPO_ALTS = (
     r"H-[CHMLI]?\d+|CH-\d+|L1-[CHMLI]-\d+|CC-\d+|F-\d+|[CHMLI]-\d{1,3}"
+    r"|GRP-\d+|H[CHMLI]-\d+"
 )
 
 # Convenience: all internal IDs (depth + tool + niche + hypothesis)
@@ -1130,6 +1155,443 @@ def _write_queue_json_sidecar(path: Path, rows: list[dict[str, str]], *, kind: s
     sidecar.write_text(content + "\n", encoding="utf-8")
 
 
+# v2.0.5 (P0.1, Codex fix 1): allowed Decision tokens for the skeptic-judge
+# table. Any other token in the Decision column means this is NOT a skeptic-
+# judge decision row — could be an unrelated 4+ column table elsewhere in
+# the same file (Evidence Integrity Notes, etc).
+_SKEPTIC_JUDGE_ALLOWED_DECISIONS = frozenset({
+    "KEEP", "DOWNGRADE", "UNRESOLVED", "PARTIAL", "DISMISS",
+})
+
+
+def _parse_skeptic_judge_table(text: str) -> list[dict]:
+    """v2.0.5 (P0.1): shared parser for the current skeptic_judge_decisions.md
+    table format.
+
+    The v2 skeptic prompt at `~/.plamen/prompts/shared/v2/phase5-skeptic.md`
+    instructs the LLM to write decisions as a single pipe-delimited table:
+
+        | Finding ID | Original Severity | Final Severity | Decision | Rationale |
+
+    Pre-v2.0.5 the only table consumer was `_collect_judge_downgrade_map`
+    (DOWNGRADE rows only). `_collect_judge_unresolved_ids` required
+    `Verdict|Decision: UNRESOLVED|PARTIAL` prose, missing the table entirely
+    and silently returning an empty set — root cause of the 2026-05-21 halt
+    where every legitimate UNRESOLVED stamp failed authenticity.
+
+    Lives in `plamen_parsers` (not `plamen_validators`) to respect the
+    parsers→validators dependency direction.
+
+    **Codex fix (P0.1 hardening):** validates BOTH (a) column 1 normalizes
+    to a real internal finding ID via `_normalize_finding_id`, AND (b)
+    column 4 is in `_SKEPTIC_JUDGE_ALLOWED_DECISIONS`. Without these
+    checks, the parser over-matched unrelated 4+ column tables later in
+    the file (e.g. an `Evidence Integrity Notes` table can invent
+    `finding_id="Category"`, `decision="SUMMARY"`).
+
+    Returns one dict per data row. Header / separator rows and rows that
+    fail validation are silently skipped. Returns [] if no validated
+    rows are found.
+    """
+    from plamen_types import normalize_severity
+    rows: list[dict] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s.startswith("|"):
+            continue
+        cells = [c.strip() for c in s.split("|")]
+        cells = [c for c in cells if c]
+        if len(cells) < 4:
+            continue
+        first = cells[0]
+        # Skip header row ("| Finding ID | ...") and separator ("|---|---|...")
+        if first.startswith("-") or first.lower().startswith("finding"):
+            continue
+        decision = cells[3].upper().replace("*", "").strip()
+        # Codex fix 1a: only accept canonical skeptic-judge decision tokens.
+        # Rejects unrelated 4+ column tables whose 4th cell isn't a decision.
+        if decision not in _SKEPTIC_JUDGE_ALLOWED_DECISIONS:
+            continue
+        # Codex fix 1b: column 1 must normalize to a recognized finding ID.
+        # Rejects rows where the first cell is prose like "Category" or
+        # "code-trace" or any other non-ID token.
+        normalized_id = _normalize_finding_id(first)
+        if not normalized_id:
+            continue
+        rows.append({
+            "finding_id": first,
+            "original_severity": normalize_severity(cells[1]) or cells[1],
+            "final_severity": normalize_severity(cells[2]) or cells[2],
+            "decision": decision,
+            "rationale": cells[4] if len(cells) > 4 else "",
+        })
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# v2.0.6 (P2): canonical ID ledger
+# ---------------------------------------------------------------------------
+#
+# `_id_ledger.json` records every internal finding ID minted during a single
+# audit, with the phase and attempt that produced it. The ledger gives the
+# driver three things:
+#
+# 1. Collision detection across phase retries (chain attempt 1 minted
+#    GRP-01 = title-A; attempt 2 tries to mint GRP-01 = title-B → COLLISION).
+# 2. Next-available-ID allocation for the chain-prompt directive (so the
+#    LLM knows which numbers are taken before it mints).
+# 3. Consumer-side validation (sc_verify_queue / report_index should only
+#    reference IDs the ledger has recorded — catches stale-markdown drift).
+#
+# Lives in plamen_parsers (not plamen_validators) so prompts AND validators
+# can both consume it without violating the parsers→validators direction.
+
+
+_ID_LEDGER_NAME = "_id_ledger.json"
+_ID_LEDGER_SCHEMA_VERSION = "plamen.id_ledger.v1"
+
+
+def _id_ledger_path(scratchpad: Path) -> Path:
+    return scratchpad / _ID_LEDGER_NAME
+
+
+def _title_hash(title: str) -> str:
+    """v2.0.6 (P2): canonical content-hash for a finding title.
+
+    Normalizes by lowercasing, collapsing whitespace, and stripping
+    common ID/punctuation framing so legitimate retry-with-same-content
+    produces an identical hash while different-content rewrites produce
+    a different hash (collision detection).
+    """
+    import hashlib
+    import re as _re
+    s = (title or "").strip().lower()
+    # Strip leading ID-like prefixes ("GRP-01:", "Finding [HC-02]:")
+    s = _re.sub(r"^\s*(?:finding\s+)?\[?[a-z]{1,8}-\d+[a-z0-9-]*\]?\s*[:.]?\s*", "", s)
+    # Collapse all whitespace
+    s = _re.sub(r"\s+", " ", s)
+    # Strip a few common punctuation chars that don't affect meaning
+    s = s.strip(" -_:`*")
+    return "sha256:" + hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _id_ledger_load(scratchpad: Path) -> dict:
+    """Load the ID ledger from disk. Returns the canonical empty shape
+    if the file doesn't exist or is malformed (so callers can append
+    without needing to special-case first-write).
+    """
+    path = _id_ledger_path(scratchpad)
+    empty = {
+        "schema_version": _ID_LEDGER_SCHEMA_VERSION,
+        "allocations": [],
+    }
+    if not path.exists():
+        return empty
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return empty
+    if not isinstance(payload, dict):
+        return empty
+    if payload.get("schema_version") != _ID_LEDGER_SCHEMA_VERSION:
+        return empty
+    allocations = payload.get("allocations")
+    if not isinstance(allocations, list):
+        return empty
+    return {
+        "schema_version": _ID_LEDGER_SCHEMA_VERSION,
+        "allocations": allocations,
+    }
+
+
+def _id_ledger_save(scratchpad: Path, ledger: dict) -> None:
+    """Atomic save via temp-file rename (mirrors `_write_artifact_state`)."""
+    path = _id_ledger_path(scratchpad)
+    payload = {
+        "schema_version": _ID_LEDGER_SCHEMA_VERSION,
+        "allocations": ledger.get("allocations", []),
+    }
+    content = json.dumps(payload, indent=2, sort_keys=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    try:
+        tmp.write_text(content + "\n", encoding="utf-8")
+        tmp.replace(path)
+    except OSError:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+
+def _id_prefix_of(finding_id: str) -> str:
+    """Extract the prefix segment of a finding ID (e.g., GRP-01 → 'GRP-').
+
+    Returns "" for unrecognized formats.
+    """
+    import re as _re
+    m = _re.match(r"^([A-Za-z]{1,8}-)\d+", (finding_id or "").strip().upper())
+    return m.group(1) if m else ""
+
+
+def id_ledger_register(
+    scratchpad: Path,
+    *,
+    finding_id: str,
+    owner_phase: str,
+    owner_attempt: int,
+    owning_artifact: str,
+    title: str,
+) -> dict:
+    """v2.0.6 (P2): register an ID allocation in the ledger.
+
+    Returns a dict with:
+      - "status": "REGISTERED" | "REUSED" | "COLLISION"
+      - "existing": the prior allocation record if REUSED/COLLISION, else None
+      - "current": the input parameters as a record
+
+    Semantics:
+      - REGISTERED: ID not previously in ledger → new allocation recorded.
+      - REUSED: ID already in ledger with the SAME title_hash → legitimate
+        re-allocation (e.g. chain retry with same root cause) — no-op.
+      - COLLISION: ID already in ledger with a DIFFERENT title_hash →
+        the caller MUST fail the phase.
+
+    The ledger file is written on every REGISTER (atomic). REUSED and
+    COLLISION do NOT modify the ledger.
+    """
+    finding_id = (finding_id or "").strip().upper()
+    if not finding_id:
+        return {"status": "REGISTERED", "existing": None, "current": None}
+    new_hash = _title_hash(title)
+    ledger = _id_ledger_load(scratchpad)
+    for record in ledger.get("allocations", []):
+        if record.get("id", "").upper() == finding_id:
+            if record.get("title_hash") == new_hash:
+                return {"status": "REUSED", "existing": record, "current": None}
+            return {"status": "COLLISION", "existing": record, "current": {
+                "id": finding_id,
+                "owner_phase": owner_phase,
+                "owner_attempt": owner_attempt,
+                "owning_artifact": owning_artifact,
+                "title_preview": (title or "")[:120],
+                "title_hash": new_hash,
+            }}
+    new_record = {
+        "id": finding_id,
+        "prefix": _id_prefix_of(finding_id),
+        "owner_phase": owner_phase,
+        "owner_attempt": owner_attempt,
+        "owning_artifact": owning_artifact,
+        "title_hash": new_hash,
+        "title_preview": (title or "")[:120],
+        "allocated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    ledger["allocations"].append(new_record)
+    _id_ledger_save(scratchpad, ledger)
+    return {"status": "REGISTERED", "existing": None, "current": new_record}
+
+
+def id_ledger_next_available(scratchpad: Path, prefix: str) -> str:
+    """Return the next-available ID for `prefix` (e.g., 'GRP-' → 'GRP-04'
+    if GRP-01..GRP-03 are allocated). Caller's responsibility to pass
+    the correct prefix shape (must end in '-' and contain only letters
+    before the dash).
+    """
+    import re as _re
+    if not prefix or not prefix.endswith("-"):
+        return ""
+    ledger = _id_ledger_load(scratchpad)
+    max_num = 0
+    pattern = _re.compile(rf"^{_re.escape(prefix)}(\d+)$", _re.IGNORECASE)
+    for record in ledger.get("allocations", []):
+        m = pattern.match(record.get("id", ""))
+        if m:
+            try:
+                n = int(m.group(1))
+                if n > max_num:
+                    max_num = n
+            except ValueError:
+                pass
+    # Pad to 2 digits if the prefix conventionally uses 2-digit numbering,
+    # else keep natural width. The chain prompt vocabulary uses 2-digit
+    # padding by convention (HC-01, GRP-01, HH-02, etc.).
+    return f"{prefix}{max_num + 1:02d}"
+
+
+def id_ledger_lookup(scratchpad: Path, finding_id: str) -> dict | None:
+    """Return the ledger record for `finding_id`, or None if not registered."""
+    fid = (finding_id or "").strip().upper()
+    if not fid:
+        return None
+    ledger = _id_ledger_load(scratchpad)
+    for record in ledger.get("allocations", []):
+        if record.get("id", "").upper() == fid:
+            return record
+    return None
+
+
+def id_ledger_all_for_prefix(scratchpad: Path, prefix: str) -> list[dict]:
+    """Return all ledger records whose ID has the given prefix."""
+    ledger = _id_ledger_load(scratchpad)
+    return [r for r in ledger.get("allocations", [])
+            if r.get("id", "").upper().startswith(prefix.upper())]
+
+
+def id_ledger_all_records(scratchpad: Path) -> list[dict]:
+    """Return all ledger records (sorted by allocated_at)."""
+    ledger = _id_ledger_load(scratchpad)
+    records = list(ledger.get("allocations", []))
+    records.sort(key=lambda r: r.get("allocated_at", ""))
+    return records
+
+
+def _judge_source_fingerprint(src: Path) -> dict:
+    """v2.0.5 (P0.2, Codex fix 2): identity record for the source markdown
+    that lets the sidecar reader detect changes within the same mtime
+    second.
+
+    Returns `{source_mtime_ns: int, source_sha256: str, source_size: int}`.
+    Used by both writer (stored in JSON) and reader (compared to current
+    source state). All three fields must match for the sidecar to be
+    trusted.
+    """
+    import hashlib
+    try:
+        stat = src.stat()
+        data = src.read_bytes()
+    except OSError:
+        return {}
+    return {
+        "source_mtime_ns": stat.st_mtime_ns,
+        "source_sha256": hashlib.sha256(data).hexdigest(),
+        "source_size": stat.st_size,
+    }
+
+
+def write_judge_decisions_json_sidecar(scratchpad: Path) -> int:
+    """v2.0.5 (P0.2): write `{scratchpad}/judge_decisions.json` from the
+    table format of `skeptic_judge_decisions.md`.
+
+    Idempotent: if the JSON sidecar already exists and matches what
+    would be written, leaves it alone (preserves mtime). The JSON is
+    the canonical machine-readable source — consumers prefer it over
+    re-parsing the markdown.
+
+    Codex hardening (P0.2): the sidecar embeds `source_mtime_ns` and
+    `source_sha256` so the reader can detect changes within the same
+    mtime second (the previous 1-second tolerance silently returned
+    stale data when the source was rewritten immediately after the
+    sidecar was created).
+
+    Returns the number of decisions written (0 if no source file, no
+    valid table rows, or write failed).
+
+    Schema: `plamen.judge_decisions.v1`.
+    """
+    src = scratchpad / "skeptic_judge_decisions.md"
+    if not src.exists():
+        return 0
+    try:
+        text = src.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return 0
+    rows = _parse_skeptic_judge_table(text)
+    if not rows:
+        return 0
+    decisions = []
+    for r in rows:
+        decisions.append({
+            "finding_id": r["finding_id"],
+            "original_severity": r["original_severity"],
+            "final_severity": r["final_severity"],
+            "decision": r["decision"],
+            "rationale": r["rationale"],
+        })
+    fingerprint = _judge_source_fingerprint(src)
+    payload = {
+        "schema_version": "plamen.judge_decisions.v1",
+        "source_markdown": src.name,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "row_count": len(decisions),
+        "decisions": decisions,
+        # Codex fix 2: identity fingerprint of the source markdown.
+        "source_mtime_ns": fingerprint.get("source_mtime_ns"),
+        "source_sha256": fingerprint.get("source_sha256"),
+        "source_size": fingerprint.get("source_size"),
+    }
+    sidecar = scratchpad / "judge_decisions.json"
+    content = json.dumps(payload, indent=2, sort_keys=True)
+    if sidecar.exists():
+        try:
+            existing = sidecar.read_text(encoding="utf-8", errors="replace")
+            # Strip the `generated_at` field for content-equality check so
+            # idempotent re-writes don't bump mtime needlessly. Also
+            # normalize trailing whitespace — the writer appends "\n";
+            # the in-memory `content` doesn't have it yet.
+            import re as _re
+            def _norm(s: str) -> str:
+                return _re.sub(
+                    r'"generated_at":\s*"[^"]*"',
+                    '"generated_at": "<ts>"',
+                    s,
+                ).rstrip()
+            if _norm(existing) == _norm(content):
+                return len(decisions)
+        except Exception:
+            pass
+    try:
+        sidecar.write_text(content + "\n", encoding="utf-8")
+    except OSError:
+        return 0
+    return len(decisions)
+
+
+def read_judge_decisions_json_sidecar(scratchpad: Path) -> list[dict]:
+    """v2.0.5 (P0.2): read `judge_decisions.json` if present AND the
+    embedded source fingerprint matches the current
+    `skeptic_judge_decisions.md`. Returns [] otherwise (caller falls
+    back to markdown parsing).
+
+    Codex hardening: pre-Codex this function used a 1-second mtime
+    tolerance which accepted stale sidecars when the source was
+    rewritten immediately after sidecar creation. The new check
+    compares (mtime_ns, size, sha256) — accepts only on EXACT match.
+    Legacy sidecars without fingerprint fields are rejected (caller
+    re-writes them via the writer above).
+    """
+    sidecar = scratchpad / "judge_decisions.json"
+    src = scratchpad / "skeptic_judge_decisions.md"
+    if not sidecar.exists():
+        return []
+    try:
+        payload = json.loads(sidecar.read_text(encoding="utf-8", errors="replace"))
+    except Exception:
+        return []
+    if not isinstance(payload, dict):
+        return []
+    if payload.get("schema_version") != "plamen.judge_decisions.v1":
+        return []
+    # Codex fix 2: require the embedded source fingerprint to match the
+    # current source markdown. If any field is missing (legacy sidecar)
+    # or differs (source was rewritten), reject the sidecar so the
+    # caller falls back to MD parsing.
+    if src.exists():
+        current = _judge_source_fingerprint(src)
+        for k in ("source_mtime_ns", "source_sha256", "source_size"):
+            if payload.get(k) != current.get(k):
+                return []
+    else:
+        # Source missing but sidecar exists — accept the sidecar
+        # (the gate caller will fall through and handle the missing
+        # source separately).
+        pass
+    decisions = payload.get("decisions")
+    if not isinstance(decisions, list):
+        return []
+    return decisions
+
+
 def _read_queue_json_sidecar(path: Path) -> list[dict[str, str]]:
     sidecar = _queue_sidecar_path(path)
     if not sidecar.exists():
@@ -1475,7 +1937,8 @@ def _filter_sc_verification_queue_by_mode(scratchpad: Path, mode: str) -> int:
 
 _HYPO_HEADING_RE = re.compile(
     r"^\s*#{2,4}\s+(?:(?:Chain\s+)?Hypothesis\s+)?"
-    r"(\bH-[CHMLI]?\d+\b|\bCH-\d+\b|\bL1-[CHMLI]-\d+\b)",
+    r"(\bH-[CHMLI]?\d+\b|\bCH-\d+\b|\bL1-[CHMLI]-\d+\b"
+    r"|\bGRP-\d+\b|\bH[CHMLI]-\d+\b)",  # F1: SC grouped + severity-bucketed
     re.MULTILINE | re.IGNORECASE,
 )
 
@@ -1577,6 +2040,79 @@ def _parse_hypothesis_constituents(scratchpad: Path) -> dict[str, list[str]]:
 _CHAIN_SUMMARY_HEADING_RE = re.compile(
     r"^##\s+Chain\s+Summary\b", re.MULTILINE | re.IGNORECASE
 )
+
+
+def _chain_iter2_has_no_unexplored_pairs(scratchpad: Path) -> bool:
+    """Pre-spawn early-exit signal for phase `chain_iter2`.
+
+    Returns True when there's nothing for iteration 2 to do — i.e. either
+    `composition_coverage.md` is missing (chain phase didn't produce it,
+    which is itself a soft-degraded state — defer rather than spawn an
+    LLM with no input), OR the coverage map's Explored? column shows no
+    NO rows that are cross-class AND have at least one Medium+ side.
+
+    Per rules/phase4c-chain-prompt.md ITERATIVE_CHAIN_COMPOSITION:
+    "If Agent 2 reported 0 new chains AND 0 unexplored cross-class
+    Medium+ pairs → skip iteration 2."
+
+    Conservative on parse failure: returns True (skip) rather than spawn
+    an LLM that would then have no work. The soft phase model means a
+    false-positive skip is cheap (we lose 0 chains we couldn't find
+    anyway); a false-negative spawn wastes ~$1-2 of sonnet time.
+    """
+    coverage = scratchpad / "composition_coverage.md"
+    if not coverage.exists():
+        return True
+    try:
+        text = coverage.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return True
+    # Parse the coverage table. Header should include Finding A, Finding B,
+    # Explored?, Result, Notes. We look for table rows whose `Explored?`
+    # cell is `NO` (case-insensitive) AND at least one severity column on
+    # either side mentions Critical/High/Medium. Tolerant of column
+    # ordering and exact header wording.
+    unexplored_medium_plus = 0
+    in_table = False
+    header_keys: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|"):
+            in_table = False
+            header_keys = []
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if cells and all(set(c) <= {"-", ":", " "} for c in cells):
+            # Markdown separator row → previous line was the header.
+            continue
+        norm = [re.sub(r"[^a-z0-9]+", "", c.lower()) for c in cells]
+        if "findinga" in norm or "findingb" in norm or "explored" in norm:
+            in_table = True
+            header_keys = norm
+            continue
+        if not in_table or not header_keys:
+            continue
+        # Look for explored column = NO
+        try:
+            explored_idx = header_keys.index("explored")
+        except ValueError:
+            try:
+                explored_idx = header_keys.index("exploredq")
+            except ValueError:
+                continue
+        if explored_idx >= len(cells):
+            continue
+        explored_val = cells[explored_idx].strip().lower()
+        if explored_val not in ("no", "n", "false", "pending", "unexplored"):
+            continue
+        # Severity heuristic: if any cell in the row mentions Critical/High/Medium
+        # → count as Medium+ unexplored.
+        row_text = " ".join(cells).lower()
+        if re.search(r"\b(critical|high|medium)\b", row_text):
+            unexplored_medium_plus += 1
+            if unexplored_medium_plus > 0:
+                return False
+    return unexplored_medium_plus == 0
 
 
 def _extract_chain_summaries_compact(scratchpad: Path) -> int:
@@ -3511,8 +4047,17 @@ def _expected_depth_agent_roles(scratchpad: Path) -> list[str]:
     roles: list[str] = []
     for f in sorted(scratchpad.glob("depth_*_findings.md")):
         name = f.name
+        # Exclude iteration / Devil's-Advocate variants. Both the abbreviated
+        # (`iter2`) and spelled-out (`iteration2`) tokens must be listed —
+        # `iteration2` does NOT contain the substring `iter2`, so an
+        # un-canonicalized `depth_edge_case_iteration2_findings.md` would
+        # otherwise be mis-parsed as a phantom role `edge_case_iteration2`
+        # (observed on the DODO audit graph-consumption warning).
         if any(
-            tok in name for tok in ("iter2", "iter3", "_da_", "depth_da")
+            tok in name for tok in (
+                "iter2", "iter3", "iteration2", "iteration3",
+                "_da_", "depth_da",
+            )
         ):
             continue
         if name == "depth_findings.md":
@@ -4082,7 +4627,36 @@ _MATRIX_LIKELIHOOD_RE = re.compile(
 )
 
 
-_MATRIX_TRUST_FULLY_RE = re.compile(r"FULLY[_\s-]TRUSTED|fully[-\s]?trusted", re.IGNORECASE)
+# DODO May-2026 fix: the original `fully[-\s]?trusted` pattern matched
+# explanatory PROSE that REJECTS applying the modifier (e.g., verifier
+# wrote "the severity discount for fully-trusted actors applies only
+# when… [we don't apply it here]"). This caused a false-positive -1 tier
+# demotion in `_apply_severity_modifiers` → driver expected Medium for
+# verify_H-9.md but verifier wrote High → provenance gate halted.
+# Fix: require an EXPLICIT structured field marker, not free prose. The
+# verifier must affirmatively assert the modifier via a recognized
+# line-anchored format. Free mentions of "fully-trusted" in narrative
+# discussion are ignored.
+_MATRIX_TRUST_FULLY_RE = re.compile(
+    # Affirmative explicit forms only — narrative mentions of
+    # "fully-trusted" in prose discussion don't match. The verifier
+    # must use one of these structured patterns to opt into the
+    # -1 tier modifier:
+    #   `**Trust**: FULLY_TRUSTED`
+    #   `**Modifier**: FULLY_TRUSTED`
+    #   `Trust Modifier: fully-trusted`
+    #   `Trust Adj.: TRUSTED-ACTOR(...)`
+    #   `Severity Modifier: fully-trusted`
+    #   `Actor: fully-trusted`
+    #   `[TRUSTED-ACTOR]` tag
+    #   `applies fully-trusted -1 tier`
+    r"(?:^\s*(?:\*\*)?(?:Trust\s*Adj\.?|Trust|Modifier|"
+    r"Trust\s*Modifier|Severity\s*Modifier|Actor)(?:\*\*)?\s*:?\s*"
+    r"(?:FULLY[_\s-]TRUSTED|fully[-\s]?trusted|TRUSTED-ACTOR))|"
+    r"(?:\[TRUSTED-ACTOR\])|"
+    r"(?:applies\s+(?:the\s+)?fully[-\s]?trusted)",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 
 _MATRIX_VIEW_FN_RE = re.compile(
@@ -4122,35 +4696,114 @@ def _extract_severity_inputs(verify_text: str) -> dict:
     return {"impact": impact, "likelihood": likelihood, "modifiers": modifiers}
 
 
+_SEVERITY_ADJUSTMENT_PATTERNS = (
+    # `High (adjusted to Medium — reason)` — most common verifier idiom
+    re.compile(
+        r"^\s*(?:Critical|High|Medium|Low|Informational|Info)\s*"
+        r"[\(\[][^)\]]*?\b(?:adjusted|demoted|upgraded|downgraded|capped|"
+        r"reduced|raised|moved|now|→|->|=>)\s*(?:to\s+)?"
+        r"(Critical|High|Medium|Low|Informational|Info)\b",
+        re.IGNORECASE,
+    ),
+    # `High → Medium` or `High -> Medium` or `High => Medium`
+    re.compile(
+        r"^\s*(?:Critical|High|Medium|Low|Informational|Info)\s*"
+        r"(?:→|->|=>)\s*"
+        r"(Critical|High|Medium|Low|Informational|Info)\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _extract_verifier_severity_with_adjustment(raw: str) -> str:
+    """Return the FINAL severity the verifier intended, after any inline
+    adjustment they documented.
+
+    The verifier prompt allows authored adjustments inline in the
+    `Severity:` field (e.g. ``**Severity:** High (adjusted to Medium —
+    external precondition required)``). Naive parsing reads "High" (the
+    first token) and inflates the expected severity; the provenance
+    gate then rejects the LLM's correctly-downgraded report row.
+
+    This helper recognizes the documented adjustment idioms and returns
+    the POST-adjustment value. If no adjustment is found, returns the
+    field verbatim for downstream `normalize_severity` to handle.
+
+    Added in response to the DODO May-2026 audit halt where
+    `verify_H-20.md` wrote `Severity: High (adjusted to Medium —
+    external precondition required; see below)` — verifier intent was
+    Medium, driver computed High, LLM correctly wrote Medium per the
+    intent, provenance gate misclassified as LLM-fault.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return text
+    # The upstream `_field_from_markdown` extractor can leak markdown
+    # decoration (`**`, leading `-`, backticks) when verifiers write
+    # `**Severity:** High (...)` — strip those so the adjustment-pattern
+    # regex can anchor cleanly on the severity word.
+    cleaned = re.sub(r"^[\s*`_\-–—:]+", "", text)
+    cleaned = re.sub(r"[\s*`_]+$", "", cleaned)
+    for pat in _SEVERITY_ADJUSTMENT_PATTERNS:
+        m = pat.search(cleaned)
+        if m:
+            return m.group(1)
+    return text
+
+
 def _enforce_severity_matrix(verify_text: str, queue_row: dict[str, str]) -> str:
     """Compute expected severity from verify text and queue row.
 
-    Priority:
+    Priority (post-DODO refinement, asymmetric and intentional):
+
     1. Matrix (Impact × Likelihood + modifiers) when both axes are present.
-    2. Verifier's explicit **Severity** field when it disagrees with the matrix
-       (the verifier may have applied contextual reasoning the parser cannot
-       detect — e.g., "Impact High × Likelihood High = Critical per matrix,
-       but High is appropriate because …").  When the verifier explicitly states
-       a LOWER severity than the matrix, the verifier wins; the provenance gate
-       treats this as an authored downgrade that does not need a Trust Adj.
-       token (the rationale is in the verify file itself).
-    3. Queue-row severity as fallback with E7 conservative downgrade.
+    2. Verifier's explicit `**Severity**:` field when LOWER than the matrix
+       computation — the verifier has context (atomic revert, design
+       intent) the mechanical matrix cannot capture, AND a verifier
+       under-rating is a deliberate authored downgrade that needs no
+       Trust Adj. token.
+    3. Verifier's inline-adjustment notation (e.g. `Severity: High
+       (adjusted to Medium — reason)`) is honored as the verifier's
+       intent — the post-adjustment value wins.
+    4. Queue-row severity as final fallback with E7 conservative
+       downgrade.
+
+    **Why NOT symmetric (verifier wins both directions)?** The DODO
+    May-2026 audit's H-9 case looked like a symmetric-rule problem
+    (verifier said High, matrix said Medium due to a prose match on
+    `fully-trusted`). The real fix was in
+    `_MATRIX_TRUST_FULLY_RE` — tightening the trust-modifier detector
+    so it requires an explicit structured marker, not free prose.
+    With that fix, the verifier explicitly rejecting the modifier in
+    narrative no longer false-triggers the demotion. The asymmetric
+    contract (matrix corrects LLM over-rating) is preserved, which
+    catches the more common failure mode of verifier severity
+    inflation seen in the DODO grader output (6/7 FOUND verdicts
+    over-rated severity vs ground truth).
     """
     inputs = _extract_severity_inputs(verify_text)
     base = _compute_matrix_severity(inputs.get("impact"), inputs.get("likelihood"))
     verifier_sev_raw = _field_from_markdown(
         verify_text or "", ("Severity", "Final Severity"),
     )
-    verifier_sev = normalize_severity(verifier_sev_raw) if verifier_sev_raw else ""
+    # Apply inline-adjustment recognition before normalizing. The
+    # verifier may have written `High (adjusted to Medium — reason)`;
+    # honor the post-adjustment value as the verifier's intent.
+    verifier_sev_resolved = _extract_verifier_severity_with_adjustment(
+        verifier_sev_raw
+    )
+    verifier_sev = (
+        normalize_severity(verifier_sev_resolved) if verifier_sev_resolved else ""
+    )
     if base is not None:
         matrix_final = _apply_severity_modifiers(base, inputs.get("modifiers", {}))
         if verifier_sev and verifier_sev != matrix_final:
             v_rank = severity_rank(verifier_sev)
             m_rank = severity_rank(matrix_final)
+            # Verifier wins ONLY when LOWER than the matrix. Higher-than-
+            # matrix verifier severity is interpreted as LLM over-rating
+            # and the matrix corrects it.
             if v_rank < m_rank and v_rank >= 0:
-                # Verifier chose a LOWER severity than the matrix — respect it.
-                # The verifier has context (e.g., atomic revert, design intent)
-                # that the mechanical matrix cannot capture.
                 return verifier_sev
         return matrix_final
     # No matrix axes — fall back to explicit verifier field or queue row.

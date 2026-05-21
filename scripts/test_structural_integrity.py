@@ -668,7 +668,13 @@ def test_validator_dispatch_covers_all_critical_phases():
                    # scope_file is a config.get key (wizard-provided audit
                    # scope file). Added in the post-v2.0.0 recon coverage
                    # gate scope-file consumption fix.
-                   "scope_file"}
+                   "scope_file",
+                   # v2.0.4 (A'1): inventory containment branch uses a
+                   # phase-name prefix (`.startswith("inventory_chunk_")`)
+                   # not an exact match — the prefix matches all three
+                   # real chunk phases (a/b/c). Same pattern as
+                   # report_body_writer_ above.
+                   "inventory_chunk_"}
     ghost_refs -= config_keys
 
     assert not ghost_refs, (

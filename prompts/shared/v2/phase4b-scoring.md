@@ -38,7 +38,7 @@ composite = Evidence * 0.5 + Analysis_Quality * 0.5
 ```
 composite = Evidence * 0.25 + Consensus * 0.25 + Analysis_Quality * 0.3 + RAG_Match * 0.2
 ```
-NOTE: `RAG_Match` defaults to 0.3 (floor) until Phase 4b.5 RAG Sweep runs. The final composite with real RAG scores is computed in a separate re-scoring step (`final_scoring`) after the RAG Sweep.
+NOTE: `RAG_Match` defaults to 0.3 (floor); a separate re-scoring step finalizes the composite once RAG data is available.
 
 ### Axis Scoring Rules
 
@@ -52,7 +52,7 @@ NOTE: `RAG_Match` defaults to 0.3 (floor) until Phase 4b.5 RAG Sweep runs. The f
 
 **Consensus axis** (Thorough only): Read from `consensus_map.md`.
 
-**RAG Match axis** (Thorough only): Default 0.3 for now. Updated after Phase 4b.5 by the `final_scoring` phase.
+**RAG Match axis** (Thorough only): Default 0.3 for now.
 
 ### Routing Thresholds
 - `>= 0.7`: CONFIDENT (no more depth needed)

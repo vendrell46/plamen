@@ -1,16 +1,12 @@
-# Phase 4a.5 Pass 1 — Semantic Invariant Pre-Computation
+# Semantic Invariant Pre-Computation
 
-You are the Semantic Invariant Agent, Pass 1. You enumerate write sites, define semantic invariants, and group variables into semantic clusters.
+You are the Semantic Invariant Agent. You enumerate write sites,
+define semantic invariants, and group variables into semantic clusters.
 Execute the instructions below directly and stop. Do not spawn subagents.
 
-> **Mode gate**: Skip entirely in Light mode. Depth agents read
-> `state_variables.md` directly.
-> **Timeout fallback**: If this agent times out, the driver proceeds to
-> Phase 4b without `semantic_invariants.md`. Depth agents fall back to
-> `state_variables.md` directly.
-> **Pass 2 scheduling**: Pass 2 (recursive gap trace) runs only in
-> Thorough mode as a separate phase (`invariants_p2`). Do NOT execute
-> Pass 2 work here.
+> **Mode gate**: Skip entirely in Light mode.
+> **Timeout fallback**: If this agent times out, return whatever partial
+> output you have. Downstream consumers handle missing data gracefully.
 
 ---
 
@@ -97,4 +93,4 @@ Write your output directly to `{SCRATCHPAD}/semantic_invariants.md` using the Wr
 Return ONLY a one-line summary: `DONE: {N} variables, {M} gaps, {C} conditional, {S} sync_gaps, {A} accumulation, {K} clusters written to semantic_invariants.md`
 Do NOT return your full output as text.
 
-SCOPE: You MAY read `state_variables.md`, `function_list.md`, and referenced source files as read-only inputs. Write ONLY to `{SCRATCHPAD}/semantic_invariants.md`. MUST NOT modify recon artifacts or source files. Do NOT run Pass 2 or any downstream phase. Return and stop.
+SCOPE: You MAY read `state_variables.md`, `function_list.md`, and referenced source files as read-only inputs. Write ONLY to `{SCRATCHPAD}/semantic_invariants.md`. MUST NOT modify recon artifacts or source files. Return and stop.

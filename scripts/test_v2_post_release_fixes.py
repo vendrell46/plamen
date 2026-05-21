@@ -519,3 +519,185 @@ def test_run_install_calls_toolchain_report():
                 f"likely wrapped in a platform-specific conditional; "
                 f"must be unconditional so macOS / Linux see it too"
             )
+
+
+# ---------------------------------------------------------------------------
+# Per-ecosystem assertion dispatch (Steps 1 & 2)
+#
+# Validates plamen_validators._resolve_assert_dispatch() routes correctly per
+# detected language, and that each ecosystem's nontrivial regex catches real
+# assertions while letting trivial forms fall through to the trivial-check.
+# This is the change that converts every Solidity Foundry PoC from
+# [POC-PASS] → [CODE-TRACE] back to [POC-PASS] in the final report.
+# ---------------------------------------------------------------------------
+
+import importlib
+
+
+def _validators():
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+    if "plamen_validators" in sys.modules:
+        del sys.modules["plamen_validators"]
+    return importlib.import_module("plamen_validators")
+
+
+def test_assert_dispatch_evm_foundry_nontrivial_matches():
+    v = _validators()
+    d = v._resolve_assert_dispatch("evm")
+    nt = d["nontrivial"]
+    # Real Foundry forms a verifier writes
+    assert nt.search("assertEq(attackerBalance, 100 ether)")
+    assert nt.search("assertEq(token.balanceOf(user), expected)")
+    assert nt.search("assertTrue(bug_present)")
+    assert nt.search("assertGt(received, sent)")
+    assert nt.search("vm.expectRevert(stdError.arithmeticError)")
+    assert nt.search("vm.expectEmit(true, true, false, true)")
+
+
+def test_assert_dispatch_evm_hardhat_chai_matches():
+    v = _validators()
+    d = v._resolve_assert_dispatch("evm")
+    nt = d["nontrivial"]
+    assert nt.search('expect(tx).to.emit(contract, "Transfer")')
+    assert nt.search('expect(result).to.equal(100)')
+    assert nt.search('expect(call).to.revert')
+
+
+def test_assert_dispatch_evm_trivial_falls_through():
+    """Trivial literal-only assertions must NOT match nontrivial regex.
+
+    This is the cascade that lets _validate_poc_pass_integrity catch trivial
+    PoCs via the trivial_strs string check rather than treating them as real.
+    """
+    v = _validators()
+    d = v._resolve_assert_dispatch("evm")
+    nt = d["nontrivial"]
+    for c in [
+        "assertEq(1, 1)",
+        "assertEq(0, 0)",
+        "assertEq(true, true)",
+        "assertEq(false, false)",
+        "assertTrue(true)",
+        "assertFalse(false)",
+    ]:
+        assert not nt.search(c), f"trivial form {c!r} should not match nontrivial"
+
+
+def test_assert_dispatch_evm_any_catches_all():
+    v = _validators()
+    d = v._resolve_assert_dispatch("evm")
+    a = d["any"]
+    for c in [
+        "assertEq(1, 1)", "assertEq(x, y)", "assertTrue(z)",
+        "vm.expectRevert()", "vm.expectEmit(true, true, true, true)",
+        'expect(tx).to.emit(c, "E")',
+    ]:
+        assert a.search(c), f"any_re should match {c!r}"
+
+
+def test_assert_dispatch_solana_rust_matches():
+    v = _validators()
+    d = v._resolve_assert_dispatch("solana")
+    nt = d["nontrivial"]
+    assert nt.search("assert_eq!(actual_balance, expected_balance)")
+    assert nt.search("assert!(result.is_err())")
+    assert nt.search("#[should_panic]")
+    assert nt.search("token_account.amount.unwrap_err()")
+    # Trivial cascade
+    assert not nt.search("assert_eq!(1, 1)")
+
+
+def test_assert_dispatch_soroban_uses_rust_family():
+    """Soroban shares Rust assertion vocabulary with Solana."""
+    v = _validators()
+    sol = v._resolve_assert_dispatch("solana")
+    sor = v._resolve_assert_dispatch("soroban")
+    assert sol["any"].pattern == sor["any"].pattern
+    assert sol["nontrivial"].pattern == sor["nontrivial"].pattern
+
+
+def test_assert_dispatch_aptos_move_two_arg_form():
+    v = _validators()
+    d = v._resolve_assert_dispatch("aptos")
+    nt = d["nontrivial"]
+    # Aptos assert!(cond, abort_code)
+    assert nt.search("assert!(balance == 100, EINVALID_BALANCE)")
+    assert nt.search("assert!(result == expected, 1)")
+    # Any-form catches even trivial assert!
+    assert d["any"].search("assert!(true)")
+
+
+def test_assert_dispatch_sui_move_single_arg_form():
+    v = _validators()
+    d = v._resolve_assert_dispatch("sui")
+    nt = d["nontrivial"]
+    # Sui assert!(cond)
+    assert nt.search("assert!(balance == 100)")
+    assert nt.search("assert!(result == expected)")
+    assert d["any"].search("assert!(true)")
+
+
+def test_assert_dispatch_l1_go_testing_idioms():
+    v = _validators()
+    d = v._resolve_assert_dispatch("l1_go")
+    nt = d["nontrivial"]
+    assert nt.search('t.Fatalf("got %v want %v", got, want)')
+    assert nt.search('t.Errorf("mismatch: %v", err)')
+    assert nt.search("require.Equal(t, expected, actual)")
+    assert nt.search("assert.True(t, cond)")
+    assert nt.search("require.NoError(t, err)")
+    # Any-form catches bare t.Fatal / t.Error
+    assert d["any"].search('t.Fatal("x")')
+
+
+def test_assert_dispatch_l1_rust_matches_rust_family():
+    v = _validators()
+    rust = v._resolve_assert_dispatch("solana")
+    l1r = v._resolve_assert_dispatch("l1_rust")
+    assert rust["any"].pattern == l1r["any"].pattern
+
+
+def test_assert_dispatch_unknown_language_falls_back_to_union():
+    """Unknown / missing language → union regex (broadest detection).
+
+    Back-compat: any caller without language info still benefits from
+    Foundry/Move/Go vocabulary additions.
+    """
+    v = _validators()
+    d = v._resolve_assert_dispatch("")
+    a = d["any"]
+    # The union regex must match each ecosystem's canonical form
+    assert a.search("assertEq(x, y)")            # EVM
+    assert a.search("assert_eq!(x, y)")          # Rust
+    assert a.search("assert!(cond, code)")       # Move
+    assert a.search('t.Fatal("x")')              # Go
+    assert a.search('expect(x).to.equal(y)')     # Hardhat
+
+
+def test_read_language_from_config(tmp_path):
+    v = _validators()
+    # Empty scratchpad → empty string
+    assert v._read_language_from_config(tmp_path) == ""
+    # Write config.json with language
+    import json
+    (tmp_path / "config.json").write_text(json.dumps({"language": "solana"}))
+    assert v._read_language_from_config(tmp_path) == "solana"
+    # Malformed JSON → empty (graceful)
+    (tmp_path / "config.json").write_text("{not json")
+    assert v._read_language_from_config(tmp_path) == ""
+
+
+def test_legacy_globals_still_exported_and_broader_than_v1():
+    """Direct importers of _ANY_ASSERT_RE / _NONTRIVIAL_ASSERT_RE keep working.
+
+    The legacy globals are now the union across all ecosystems — broader than
+    the v1 Rust-only regex, but still semantically a "match any assertion"
+    fallback when no language is known.
+    """
+    v = _validators()
+    assert hasattr(v, "_ANY_ASSERT_RE")
+    assert hasattr(v, "_NONTRIVIAL_ASSERT_RE")
+    assert hasattr(v, "_TRIVIAL_ASSERT_STRS")
+    # Confirm the v1-missing Solidity vocabulary is now in the union
+    assert v._ANY_ASSERT_RE.search("assertEq(a, b)")
+    assert v._NONTRIVIAL_ASSERT_RE.search("assertEq(actualVal, 100)")

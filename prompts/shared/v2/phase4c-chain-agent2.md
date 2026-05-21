@@ -18,8 +18,8 @@ Read:
 - `{SCRATCHPAD}/hypotheses.md` (grouped hypotheses from Agent 1)
 - `{SCRATCHPAD}/finding_mapping.md` (finding → hypothesis mapping from Agent 1)
 - `{SCRATCHPAD}/enabler_results.md` (enabler enumeration + cross-state interactions from Agent 1)
-- `{SCRATCHPAD}/variable_finding_map.md` (variable→finding cross-reference for variable-level matching — if missing, fall back to grep-based variable name matching in `findings_inventory.md`)
-- `{SCRATCHPAD}/chain_candidate_pairs.md` (pre-filtered pairs with shared state/type — if present, evaluate ONLY these pairs)
+- `{SCRATCHPAD}/variable_finding_map.md` (variable→finding cross-reference for variable-level matching — driver-produced by the chain-prep pre-pass; if missing, fall back to grep-based variable name matching in `findings_inventory.md`)
+- `{SCRATCHPAD}/chain_candidate_pairs.md` (pre-filtered pairs with shared state/identifier — driver-produced by the chain-prep pre-pass; this is the bounded, finite candidate set — evaluate ONLY these pairs. The complete set is in `chain_candidate_pairs_full.md`; the `chain_iter2` phase covers any tail. If `chain_candidate_pairs.md` is missing, fall back to the original algorithm.)
 - `{SCRATCHPAD}/findings_inventory.md` (for full finding details when needed)
 
 For specific chain candidates, read the relevant source files directly.
@@ -150,4 +150,4 @@ Do NOT rely on `chain_hypotheses.md` to implicitly serve as composition coverage
 
 Return: `DONE: {M} chains identified, {K} severity upgrades, {U} unexplored pairs remaining, verification priority: [list]`
 
-SCOPE: You MAY read Chain Agent 1 outputs and the other upstream inputs listed in "Your Inputs" as read-only inputs. Write ONLY to the output files listed above (including the append/update to `hypotheses.md`). MUST NOT modify `finding_mapping.md`, `enabler_results.md`, `variable_finding_map.md`, `chain_candidate_pairs.md`, `findings_inventory.md`, or any verification/report artifact. Do NOT proceed to iteration 2 chain composition, verification, or report. Return your findings and stop.
+SCOPE: You MAY read the inputs listed in "Your Inputs" as read-only inputs. Write ONLY to the output files listed above (including the append/update to `hypotheses.md`). MUST NOT modify `finding_mapping.md`, `enabler_results.md`, `variable_finding_map.md`, `chain_candidate_pairs.md`, `findings_inventory.md`, or other artifacts. Return your findings and stop.

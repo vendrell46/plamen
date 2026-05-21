@@ -1,6 +1,6 @@
-# Phase 4e: Semantic Dedup Agent
+# Semantic Dedup Agent
 
-> **Purpose**: bounded duplicate reduction before chain/verification.
+> **Purpose**: bounded duplicate reduction.
 > **Pipeline**: SC (`findings_inventory.md` -> `findings_inventory_deduped.md`)
 > and L1 (`verification_queue.md` -> `verification_queue_deduped.md`).
 > **Model**: sonnet.
@@ -45,12 +45,22 @@ Do not merely return a summary saying this was done. Use the available file
 tools or shell commands to write the files. If you later time out, the pipeline
 must retain the upstream artifact unchanged.
 
-If passthrough outputs already exist from the driver or a prior attempt, they
-are not completed semantic-dedup work while `dedup_candidate_pairs.md` contains
-live table rows. A `PASSTHROUGH` or `IN_PROGRESS_PASSTHROUGH_WRITTEN` status
-means "crash-safety net only." Continue into semantic review, evaluate every
-live pair, and overwrite `dedup_decisions.md` plus the deduped artifact with
-real MERGE/GROUP/KEEP SEPARATE decisions.
+v2.0.10 (P4.4) — **`PASSTHROUGH` IS NOT A COMPLETION STATE.**
+
+The driver pre-writes a `PASSTHROUGH` stub in `dedup_decisions.md` and copies
+upstream artifacts to their deduped names ONLY as crash-recovery safety nets.
+If `dedup_candidate_pairs.md` contains any live table row, your job is to
+OVERWRITE `dedup_decisions.md` with explicit `MERGE` / `GROUP` / `KEEP SEPARATE`
+decisions covering every candidate pair. Returning while the file still
+contains `Status: PASSTHROUGH` or `IN_PROGRESS_PASSTHROUGH_WRITTEN` is not a
+completed phase — the driver's coverage gate flags it as ceremonial no-op and
+applies a mechanical fallback only as a last resort. The mechanical fallback
+exists to PREVENT data loss, not to LET YOU SKIP the semantic work.
+
+Required outcome: every row in `dedup_candidate_pairs.md` MUST have exactly
+one corresponding row in `dedup_decisions.md` with disposition in
+`{MERGE, GROUP, KEEP SEPARATE, N/A}`. 100% coverage. The post-phase coverage
+gate (v2.0.10) will flag missing rows.
 
 ## Hard Scope
 

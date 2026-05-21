@@ -3,21 +3,17 @@
 You are the RAG Validation Sweep Agent.
 Execute the instructions below directly and stop. Do not spawn subagents.
 
-> **Trigger**: Always, after depth loop exits (Phase 4b DONE) and before
-> final confidence scoring.
-> **Purpose**: Ensure every finding gets RAG validation as a PIPELINE
-> STAGE, not an optional agent tool call.
-> **Budget**: 1 agent (not counted against depth budget).
-> **Reference (not load-bearing)**: Full scoring context is in
-> `~/.claude/rules/phase4-confidence-scoring.md`. Scoring formulas and
-> axis weightings are applied in a separate phase (`final_scoring`) —
-> your job is only to produce per-finding RAG scores.
+> **Purpose**: Ensure every finding gets RAG validation as a mechanical
+> step, not an optional agent tool call.
+> **Budget**: 1 agent.
+> **Scope**: produce per-finding RAG scores only. Do not apply scoring
+> formulas or axis weightings — that is a separate step.
 
 ---
 
 ## Pre-check: RAG_TOOLS_AVAILABLE flag
 
-Before making any MCP calls, read `{SCRATCHPAD}/build_status.md` for `RAG_TOOLS_AVAILABLE`. This flag is set by the recon agent's unified-vuln-db probe (Phase 1).
+Before making any MCP calls, read `{SCRATCHPAD}/build_status.md` for `RAG_TOOLS_AVAILABLE`. This flag is set by an upstream probe.
 
 - If `RAG_TOOLS_AVAILABLE = true` → attempt MCP calls first, fall back to WebSearch on error
 - If `RAG_TOOLS_AVAILABLE = false` → skip MCP calls entirely, use WebSearch fallback for every finding

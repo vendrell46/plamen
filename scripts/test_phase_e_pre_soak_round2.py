@@ -181,7 +181,13 @@ def test_RETRY_hint_surfaces_in_build_phase_prompt(tmp_path: Path):
         "scope_notes": "", "network": "",
     }
     prompt = D.build_phase_prompt(v1, body_phase, config)
-    saw_block = "RETRY HINT (injected by driver" in prompt
+    # v2.x: accept either the old prepend header (accumulate phases) or the
+    # new compact-retry header (non-accumulate phases like body writers).
+    # The load-bearing assertion is that the hint body is visible.
+    saw_block = (
+        "RETRY HINT (injected by driver" in prompt
+        or "# RETRY ATTEMPT" in prompt
+    )
     saw_hint_body = "Missing: H-02" in prompt and "Extra: H-99" in prompt
     check(
         "RETRY.hint_visible_in_retry_prompt",

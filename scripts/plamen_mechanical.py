@@ -56,6 +56,7 @@ __all__ = [
     "_write_location_recovery_skip",
     "_write_mechanical_inventory_from_chunks",
     "_write_mechanical_report_index",
+    "promote_niche_to_inventory",
     "_write_mechanical_report_tier",
     "ensure_inventory_shard_plan",
     "estimate_rate_limit_wait_seconds",
@@ -244,7 +245,27 @@ def _is_test_or_mock_location(value: str) -> bool:
 
 
 def _extract_code_location_from_text(text: str) -> str:
-    """Extract the first source-code location from verifier/report prose."""
+    """Extract the first source-code location from verifier/report prose.
+
+    Priority:
+      1. An explicit `Location:` field whose value is a non-test source path.
+      2. The first regex-matched source path in the prose that is NOT a
+         test/mock file.
+      3. The explicit `Location:` field even if not strictly a "looks like
+         code" match — sometimes verifiers write `Location: src/Foo.sol`
+         in narrative prose without the strict pattern.
+
+    Returns empty string when the only candidates are test/mock paths.
+    Pre-fix (May-2026 DODO audit), the function fell through to
+    `candidates[0]` UNFILTERED when all candidates were test/mock — a
+    STRUCTURAL_NO_EXECUTABLE_HARM_ASSERTION verify file that mentioned
+    only the test harness produced `Location: VerifyCritHigh.t.sol` in
+    the manifest, which then leaked into the body writer's output, the
+    final report, and a useless client-facing "location" pointing at a
+    test file rather than the source bug site. Downstream builders have
+    an inventory/index fallback for empty locations; returning a
+    known-bad test path actively defeats that fallback.
+    """
     loc = (
         _field_from_markdown(
             text,
@@ -269,9 +290,13 @@ def _extract_code_location_from_text(text: str) -> str:
     for cand in candidates:
         if not _is_test_or_mock_location(cand):
             return cand
-    if loc and _looks_like_code_location(loc):
+    if loc and _looks_like_code_location(loc) and not _is_test_or_mock_location(loc):
         return loc
-    return candidates[0] if candidates else ""
+    # All remaining candidates are test/mock paths. Return empty so the
+    # downstream builder can consult the inventory / report_index row
+    # for the actual source location instead of writing a test file path
+    # into the finding's Location field.
+    return ""
 
 
 def _verified_claim_title(verify_text: str) -> str:
@@ -1760,8 +1785,26 @@ def _write_mechanical_inventory_from_chunks(scratchpad: Path) -> tuple[int, int]
         desc = _strip_md(str(item.get("description", ""))) or root
         impact = _strip_md(str(item.get("impact", ""))) or "Impact requires verifier confirmation."
         verdict = _strip_md(str(item.get("verdict", ""))) or "NEEDS_VERIFICATION"
+        inv_id = f"INV-{i:03d}"
+        # v2.0.6 (P2.2): register the INV allocation in the ID ledger.
+        # Inventory consolidation is mechanical / driver-owned, so true
+        # collisions cannot happen here — but the registration makes
+        # the IDs visible to the consumer backstop gate (P2.5) and to
+        # downstream phases that allocate from the same namespace.
+        try:
+            from plamen_parsers import id_ledger_register
+            id_ledger_register(
+                scratchpad,
+                finding_id=inv_id,
+                owner_phase="inventory",
+                owner_attempt=1,
+                owning_artifact="findings_inventory.md",
+                title=title,
+            )
+        except Exception as e:
+            log.debug(f"[inventory] ledger register skipped for {inv_id}: {e}")
         lines.extend([
-            f"### Finding [INV-{i:03d}]: {title}",
+            f"### Finding [{inv_id}]: {title}",
             f"**Severity**: {sev}",
             f"**Location**: {loc}",
             f"**Preferred Tag**: {tag}",
@@ -1785,6 +1828,235 @@ def _write_mechanical_inventory_from_chunks(scratchpad: Path) -> tuple[int, int]
     ]
     (scratchpad / "inventory_merge_receipt.md").write_text("\n".join(receipt), encoding="utf-8")
     return len(entries), len(merged)
+
+
+# v2.x: Niche finding ID prefixes recognized by promote_niche_to_inventory.
+# Match the headings produced by niche agents in niche_*_findings.md files.
+# Standard prefixes: NSC (semantic consistency), NDA (dimensional analysis),
+# NEC (event completeness), NSGI (semantic gap investigator), and any future
+# NXX-NN form a niche agent may emit. Driver call site: after depth phase
+# completion, before sc_semantic_dedup runs.
+_NICHE_FINDING_HEADING_RE = re.compile(
+    r"^#{2,4}\s*Finding\s*\[\s*(?P<id>[A-Z]{2,6}-\d+)\s*\]\s*:\s*(?P<title>.+?)\s*$",
+    re.MULTILINE,
+)
+
+# Heuristics for filtering false-positive "finding-shaped" sections produced
+# by methodology / processing sections inside niche files (e.g., the
+# "## Processing Protocol Execution" preamble that lists checks but is not
+# itself a finding). Real findings have ALL of these fields within ~50 lines
+# of the heading: Severity, Location, Description, Impact.
+_NICHE_REQUIRED_FIELDS = ("Severity", "Location", "Description")
+
+
+def _parse_niche_findings(scratchpad: Path) -> list[dict[str, str]]:
+    """Parse all niche_*_findings.md files into structured finding entries.
+
+    Each niche agent writes findings in the standard finding-output-format.md
+    template (## Finding [NSC-N]: Title + **Severity** / **Location** / etc).
+    This parser is conservative: it requires the standard required fields to
+    be present near the heading, rejecting methodology preambles and tables.
+
+    Returns a list of dicts with keys: source_file, source_id, title, severity,
+    location, preferred_tag, description, impact, evidence, raw_block.
+    """
+    entries: list[dict[str, str]] = []
+    for niche_path in sorted(scratchpad.glob("niche_*_findings.md")):
+        try:
+            text = niche_path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        matches = list(_NICHE_FINDING_HEADING_RE.finditer(text))
+        for i, m in enumerate(matches):
+            start = m.start()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            block = text[start:end]
+            # Require all key fields present to filter out non-finding sections
+            if not all(f"**{field}**" in block for field in _NICHE_REQUIRED_FIELDS):
+                continue
+            fid = m.group("id").strip()
+            title = m.group("title").strip()
+            sev_match = re.search(
+                r"\*\*Severity\*\*\s*:\s*([A-Za-z]+)", block, re.IGNORECASE
+            )
+            loc_match = re.search(
+                r"\*\*Location\*\*\s*:\s*(.+?)(?=\n\*\*|\n\n|$)",
+                block, re.IGNORECASE | re.DOTALL,
+            )
+            tag_match = re.search(
+                r"\*\*Preferred\s*Tag\*\*\s*:\s*(\[[A-Z\-]+\])",
+                block, re.IGNORECASE,
+            )
+            desc_match = re.search(
+                r"\*\*Description\*\*\s*:\s*(.+?)(?=\n\*\*[A-Z]|\n##|\Z)",
+                block, re.IGNORECASE | re.DOTALL,
+            )
+            impact_match = re.search(
+                r"\*\*Impact\*\*\s*:\s*(.+?)(?=\n\*\*[A-Z]|\n##|\Z)",
+                block, re.IGNORECASE | re.DOTALL,
+            )
+            entries.append({
+                "source_file": niche_path.name,
+                "source_id": fid,
+                "title": title,
+                "severity": (sev_match.group(1).strip() if sev_match else "Medium"),
+                "location": (
+                    _norm_loc(loc_match.group(1).strip()) if loc_match else "UNKNOWN"
+                ),
+                "preferred_tag": (
+                    tag_match.group(1).strip() if tag_match else "[CODE-TRACE]"
+                ),
+                "description": (
+                    _strip_md(desc_match.group(1).strip())[:1500]
+                    if desc_match else title
+                ),
+                "impact": (
+                    _strip_md(impact_match.group(1).strip())[:800]
+                    if impact_match else "Impact requires verifier confirmation."
+                ),
+                "raw_block": block,
+            })
+    return entries
+
+
+def promote_niche_to_inventory(scratchpad: Path) -> tuple[int, int]:
+    """Promote niche agent findings into findings_inventory.md as INV-* entries.
+
+    Niche agents (semantic consistency, dimensional analysis, event
+    completeness, semantic gap investigator) write to niche_*_findings.md
+    during depth phase iteration 1. These files reach chain analysis via
+    chain_summaries_compact.md but do NOT enter findings_inventory.md, which
+    is the source of truth for verification_queue.md. Result: niche findings
+    are never verified or reported.
+
+    This function appends niche findings to findings_inventory.md, continuing
+    the INV-NNN numbering. It is idempotent: a receipt file tracks already-
+    promoted niche source IDs so a re-run after retry does not duplicate.
+
+    Call site: post-depth phase completion in plamen_driver.py, after
+    _canonicalize_depth_iter_filenames but before sc_semantic_dedup runs.
+
+    Returns (parsed_count, appended_count).
+    """
+    inventory_path = scratchpad / "findings_inventory.md"
+    if not inventory_path.exists():
+        return 0, 0
+    receipt_path = scratchpad / "niche_promotion_receipt.md"
+    already_promoted: set[str] = set()
+    if receipt_path.exists():
+        try:
+            for line in receipt_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                m = re.search(r"\b([A-Z]{2,6}-\d+)\s*->\s*INV-\d+", line)
+                if m:
+                    already_promoted.add(m.group(1))
+        except Exception:
+            pass
+
+    parsed = _parse_niche_findings(scratchpad)
+    new_entries = [e for e in parsed if e["source_id"] not in already_promoted]
+    if not new_entries:
+        return len(parsed), 0
+
+    # Find highest existing INV-NNN to continue numbering
+    try:
+        inv_text = inventory_path.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return len(parsed), 0
+    max_inv = 0
+    for m in re.finditer(r"\bINV-(\d+)\b", inv_text):
+        try:
+            max_inv = max(max_inv, int(m.group(1)))
+        except ValueError:
+            continue
+
+    # Build appended entries
+    appended_lines: list[str] = []
+    mapping_lines: list[str] = []
+    for idx, entry in enumerate(new_entries, start=1):
+        inv_n = max_inv + idx
+        inv_id = f"INV-{inv_n:03d}"
+        title = entry["title"] or "Untitled niche finding"
+        # v2.0.6 (P2.2): register the niche-promoted INV in the ledger.
+        try:
+            from plamen_parsers import id_ledger_register
+            id_ledger_register(
+                scratchpad,
+                finding_id=inv_id,
+                owner_phase="niche_promotion",
+                owner_attempt=1,
+                owning_artifact="findings_inventory.md",
+                title=title,
+            )
+        except Exception as e:
+            log.debug(f"[niche] ledger register skipped for {inv_id}: {e}")
+        sev = _severity_name_from_text("", {"severity": entry["severity"]})
+        loc = entry["location"]
+        tag = entry["preferred_tag"]
+        desc = entry["description"] or title
+        impact = entry["impact"]
+        appended_lines.extend([
+            f"### Finding [{inv_id}]: {title}",
+            f"**Severity**: {sev}",
+            f"**Location**: {loc}",
+            f"**Preferred Tag**: {tag}",
+            f"**Source IDs**: {entry['source_id']} (niche-promoted from {entry['source_file']})",
+            f"**Verdict**: NEEDS_VERIFICATION",
+            f"**Root Cause**: {title}",
+            f"**Description**: {desc}",
+            f"**Impact**: {impact}",
+            "",
+        ])
+        mapping_lines.append(
+            f"- {entry['source_id']} -> {inv_id} "
+            f"({entry['source_file']}: {title[:80]})"
+        )
+
+    # Append to inventory (preserve trailing newline behavior)
+    section_header = (
+        "\n\n## Niche-Promoted Findings\n\n"
+        "Findings discovered by niche agents (semantic consistency, "
+        "dimensional analysis, event completeness, semantic gap investigator) "
+        "during depth phase iteration 1. Promoted post-depth so they reach "
+        "the verification queue and chain analysis with the same first-class "
+        "status as breadth/depth findings.\n\n"
+    )
+    existing = inv_text.rstrip()
+    new_text = existing + section_header + "\n".join(appended_lines) + "\n"
+    inventory_path.write_text(new_text, encoding="utf-8")
+
+    # Receipt for idempotency
+    receipt_lines = [
+        "# Niche Promotion Receipt",
+        "",
+        f"Parsed niche findings: {len(parsed)}",
+        f"Already promoted (prior attempt): {len(already_promoted)}",
+        f"Newly appended this run: {len(new_entries)}",
+        "",
+        "## Source-to-Inventory ID Mapping",
+        "",
+    ]
+    receipt_lines.extend(mapping_lines)
+    receipt_lines.append("")
+    # Preserve prior mappings across retries
+    if receipt_path.exists():
+        try:
+            prior_text = receipt_path.read_text(encoding="utf-8", errors="replace")
+            # Append rather than overwrite to preserve prior-run history
+            receipt_path.write_text(
+                prior_text.rstrip() + "\n\n## Re-Run\n\n" + "\n".join(receipt_lines),
+                encoding="utf-8",
+            )
+        except Exception:
+            receipt_path.write_text("\n".join(receipt_lines), encoding="utf-8")
+    else:
+        receipt_path.write_text("\n".join(receipt_lines), encoding="utf-8")
+
+    # Re-write finding records sidecar so downstream consumers see niche entries
+    try:
+        _write_finding_records_from_inventory(scratchpad)
+    except Exception:
+        pass
+    return len(parsed), len(new_entries)
 
 
 _ATTENTION_REPAIR_MAX_ITEMS = 32

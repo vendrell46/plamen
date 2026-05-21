@@ -4865,7 +4865,6 @@ def launch_v2(pipeline: str, mode: str, target: str, language: str,
         "language": language,
         "cli_backend": cli_backend,
     }
-
     if pipeline == "sc":
         config["docs_path"] = docs
         config["scope_file"] = scope_file

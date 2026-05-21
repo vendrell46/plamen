@@ -117,7 +117,32 @@ def test_assembled_appendix_uses_traceability_records_not_master_index_paste(tmp
     assert "## Master Finding Index" not in report
 
 
-def test_empty_tier_auth_token_without_sidecar_fails(tmp_path: Path):
+def test_empty_tier_auth_token_with_findings_in_queue_fails(tmp_path: Path):
+    """v2.8.7 deliberately relaxed `_empty_tier_sidecar_valid` so the
+    body-file's `PLAMEN-DRIVER-AUTHENTIC-EMPTY-TIER` marker can stand
+    in for a missing JSON sidecar (the DODO May-2026 audit halted on
+    this exact case — the body marker was authentic but the sidecar
+    write failed silently). The RELAXATION is gated by
+    `_expected_tier_assignment_count == 0` — i.e. the upstream queue
+    must agree the tier is empty.
+
+    This test locks in the IMPOSTOR-PROTECTION half of that contract:
+    when the queue has Critical/High findings, a body file with the
+    auth marker but no manifest MUST still be rejected. Otherwise an
+    LLM could write the marker text into any tier body to avoid work.
+    """
+    (tmp_path / "verification_queue.md").write_text(
+        "| Queue # | Finding ID | Severity | Title |\n"
+        "|---------|------------|----------|-------|\n"
+        "| 1 | H-1 | High | needs body |\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "verify_H-1.md").write_text(
+        "# Verification H-1\n\n**Verdict**: CONFIRMED\n"
+        "**Severity**: High\n**Evidence Tag**: [POC-PASS]\n\n"
+        "Real finding with verifier evidence to exceed the 100-byte threshold.\n",
+        encoding="utf-8",
+    )
     (tmp_path / "report_critical_high.md").write_text(
         "# Critical and High Findings\n\n"
         "_No findings of this severity tier._\n\n"
@@ -127,8 +152,32 @@ def test_empty_tier_auth_token_without_sidecar_fails(tmp_path: Path):
 
     issues = D._validate_tier_body_against_manifest(tmp_path, "report_critical_high")
 
-    assert issues
-    assert "body_manifests missing" in issues[0]
+    assert issues, (
+        "Queue has High findings but body claims empty tier with the auth "
+        "marker — impostor protection MUST reject this. The relaxation "
+        "(body marker stands in for missing sidecar) is gated on the "
+        "upstream queue agreeing the tier is empty."
+    )
+
+
+def test_empty_tier_body_marker_accepted_when_queue_truly_empty(tmp_path: Path):
+    """Positive companion to the impostor-protection test: when the
+    queue has 0 findings for this tier AND the body has the auth
+    marker, the validator should pass. This is the v2.8.7 fallback
+    that prevents the DODO halt class from recurring."""
+    (tmp_path / "report_critical_high.md").write_text(
+        "# Critical and High Findings\n\n"
+        "_No findings of this severity tier were produced by the "
+        "verification stage in this run. This is an authentic empty tier; "
+        "it is not a placeholder for a missing finding._\n\n"
+        "## Provenance\n\n"
+        "Empty-Tier-Auth: PLAMEN-DRIVER-AUTHENTIC-EMPTY-TIER\n",
+        encoding="utf-8",
+    )
+    issues = D._validate_tier_body_against_manifest(tmp_path, "report_critical_high")
+    assert not issues, (
+        f"Body with auth marker + queue truly empty should pass; got: {issues}"
+    )
 
 
 def test_stale_verify_none_does_not_mask_malformed_nonempty_queue(tmp_path: Path):

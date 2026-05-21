@@ -86,6 +86,24 @@ For each invariant, write:
 
 ---
 
+## STEP 1.5: Negative-Case Reachability (SOFT CHECK — no validator gates this)
+
+Before moving to STEP 2, walk EVERY invariant in your table and ask: *"What concrete call sequence would cause this assertion to FAIL?"*
+
+If the answer is **"I cannot construct one because the test setup makes the failing state structurally unreachable"** — the invariant is malformed. A PASS verdict on it proves nothing. Two recurring failure modes:
+
+1. **Authorization tautology**: the invariant asserts "unauthorized caller cannot do X" but the test harness contract IS the authorized caller (bot list, owner, deployer). Every call from the harness passes the check trivially. → Fix: explicitly call from `address(uint160(0xC0FFEE))` (a non-authorized synthetic address), or `vm.prank` an address known to be outside the authorized set.
+
+2. **Branch tautology**: the invariant asserts a property of state path A, but the test setup only ever reaches state path B (mutually-exclusive branches). The assertion's precondition is never satisfied so the assertion is never evaluated. → Fix: verify your `setUp()` actually drives the contract into the branch you're testing.
+
+**Output requirement**: for each invariant, write a single line below the Output Table:
+`INV-N negative case: <one-sentence call sequence that would cause this to fail>` OR
+`INV-N negative case: UNREACHABLE because <reason> — REWRITING as <new invariant>`
+
+A PASS on an invariant whose negative case is "UNREACHABLE" is mechanical-evidence-equivalent to zero coverage. Do not emit `[POC-PASS]` for those. Emit `[CODE-TRACE]` and flag the invariant as needing rewriting.
+
+---
+
 ## STEP 2: Generate Handler Contract
 
 Write a Foundry test file to `{PROJECT_ROOT}/test/invariant/InvariantFuzz.t.sol`:

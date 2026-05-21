@@ -17,6 +17,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
@@ -27,6 +28,11 @@ from plamen_validators import *  # noqa: F403,F401
 from plamen_mechanical import *  # noqa: F403,F401
 from plamen_prompt import *  # noqa: F403,F401
 import plamen_display as display
+from pty_exec import (
+    ClaudePtySession,
+    event_is_rate_limited,
+    parse_transcript_usage,
+)
 
 # Rate-limit detection: JSON-first (structured), text-fallback (unstructured).
 #
@@ -44,6 +50,12 @@ import plamen_display as display
 # to co-occur with an HTTP-style status or API error prefix — strings
 # inside LLM prose don't have those.
 _API_RATE_LIMIT_STATUSES = {429, 529}  # 429 Too Many Requests, 529 Overloaded
+
+
+class _PtyStop(Exception):
+    def __init__(self, rc: int):
+        super().__init__(rc)
+        self.rc = rc
 
 
 def _format_ai_model_summary(config: dict, active_phases: list[Phase], mode: str) -> str:
@@ -927,24 +939,188 @@ def _canonicalize_depth_iter_filenames(scratchpad: Path) -> list[str]:
     Returns the list of (source, target) pairs renamed for logging.
     """
     renamed: list[str] = []
-    for prefix in ("depth_iter2_", "depth_iter3_"):
-        for src in sorted(scratchpad.glob(f"{prefix}*.md")):
-            stem = src.stem  # e.g. "depth_iter2_state_trace"
-            if stem.endswith("_findings"):
-                continue  # already canonical
-            target = src.with_name(stem + "_findings.md")
-            if target.exists():
-                continue  # don't clobber existing canonical
-            try:
-                src.rename(target)
-                renamed.append(f"{src.name} -> {target.name}")
-            except OSError:
-                # Best-effort: any FS error and we leave the file alone.
-                # The validator's tolerant glob catches the non-canonical
-                # form too, so we degrade to "works but downstream parsers
-                # may miss this file" rather than blocking the phase.
-                pass
+    # The orchestrator is reliably TRYING to write depth iteration-2/3
+    # findings, but the token order and spelling drift. Observed and
+    # plausible variants — all semantically "depth iteration N findings
+    # for <role>":
+    #   depth_iter2_state_trace.md                (canonical prefix, no _findings)
+    #   depth_iter2_state_trace_findings.md       (fully canonical — skip)
+    #   depth_state_trace_iteration2_findings.md  (role-first, spelled out)
+    #   depth_iteration2_state_trace_findings.md  (prefix, spelled out)
+    #   depth_state_trace_iter2.md                (role-first, abbreviated)
+    #   depth_state_trace_iter_2_findings.md      (underscore before digit)
+    # ...with `iter` or `iteration`, an optional `_`/`-` before the digit,
+    # and the role segment in either position. Canonical target for ALL:
+    #   depth_iter{N}_{role}_findings.md
+    #
+    # Rather than enumerate variants (a losing game — the LLM keeps finding
+    # new orderings), DECOMPOSE each `depth_*.md` filename: locate the
+    # iteration token, lift N, treat everything else as the role, rebuild
+    # canonically. A false "no iter2 artifacts" retry re-spends the whole
+    # opus depth phase (~$4 observed on the DODO audit) — same class as
+    # v2.3.4's perturbation_findings canonicalization.
+    #
+    # `depth_da_*` / `depth_da3_*` are a SEPARATE recognized Devil's-Advocate
+    # iteration form and must be left untouched.
+    iter_token_re = re.compile(r"iter(?:ation)?[_-]?([23])", re.IGNORECASE)
+    for src in sorted(scratchpad.glob("depth_*.md")):
+        if src.name.lower().startswith(("depth_da_", "depth_da3_")):
+            continue  # recognized DA form — not an iter-prefixed file
+        stem = src.stem
+        if not stem.startswith("depth_"):
+            continue
+        body = stem[len("depth_"):]
+        m = iter_token_re.search(body)
+        if not m:
+            continue  # no iteration token → iter1 base file or non-iter file
+        n = m.group(1)
+        # Role = everything except the iteration token and the _findings
+        # suffix, with separators collapsed.
+        role = body[:m.start()] + body[m.end():]
+        role = re.sub(r"_?findings", "", role, flags=re.IGNORECASE)
+        role = re.sub(r"[_\-]+", "_", role).strip("_-")
+        if not role:
+            continue  # can't canonicalize without a role segment
+        target_name = f"depth_iter{n}_{role}_findings.md"
+        if src.name == target_name:
+            continue  # already canonical
+        target = src.with_name(target_name)
+        if target.exists():
+            continue  # don't clobber existing canonical
+        try:
+            src.rename(target)
+            renamed.append(f"{src.name} -> {target.name}")
+        except OSError:
+            # Best-effort: any FS error and we leave the file alone.
+            # The iter2 gate's tolerant glob is the defense-in-depth path.
+            pass
     return renamed
+
+
+# S1.3 — mechanical confidence scoring (driver-owned). Evidence-source tag
+# scores per ~/.plamen/rules/phase4-confidence-scoring.md, extended with the
+# PoC/proof tags depth findings actually carry.
+_EVIDENCE_TAG_SCORE = {
+    "[PROD-ONCHAIN]": 1.0, "[MEDUSA-PASS]": 1.0, "[POC-PASS]": 1.0,
+    "[PROD-SOURCE]": 0.9, "[PROD-FORK]": 0.9, "[FUZZ-PASS]": 0.9,
+    "[NON-DET-PASS]": 0.9, "[CONFORMANCE-PASS]": 0.9, "[DIFF-PASS]": 0.9,
+    "[CODE]": 0.8, "[CODE-TRACE]": 0.8, "[LSP-TRACE]": 0.7,
+    "[DOC]": 0.4, "[MOCK]": 0.2, "[POC-FAIL]": 0.15, "[EXT-UNV]": 0.1,
+}
+_DEPTH_EVIDENCE_TAG_RE = re.compile(
+    r"\[(?:BOUNDARY|VARIATION|TRACE|REGRESS|PERTURBATION|CROSS-DOMAIN-DEP|DST)"
+    r"[:\-\]]",
+    re.IGNORECASE,
+)
+# F2.0: permissive bracket-content capture. The old `[A-Z]{1,8}-\d+[A-Z\d-]*`
+# rejected blind-spot IDs of shape `BLIND-A-1` (the `\d+` immediately after
+# the first hyphen rejects the `A-` letter segment) — in DODO this matched
+# 0/14 blind-spot findings, silently under-scoring real findings in
+# confidence. The `## Finding [...]` syntax is itself the source-of-truth
+# contract: whatever the agent put in the brackets is the ID.
+_FINDING_HEADING_RE = re.compile(
+    r"(?im)^##\s+Finding\s+\[([^\]\n]+)\]"
+)
+
+
+def _iter_finding_blocks(text: str):
+    """Yield (finding_id, block_text) for each `## Finding [ID]` section.
+
+    F2.0: id is the raw bracket content; callers dedupe on the normalized
+    form (with raw-uppercase fallback for new/unrecognized prefixes) to
+    avoid raw-vs-normalized double-counting.
+    """
+    matches = list(_FINDING_HEADING_RE.finditer(text))
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        yield m.group(1).strip(), text[start:end]
+
+
+def _compute_depth_confidence(scratchpad: Path, mode: str) -> int:
+    """S1.3: write a real, per-finding confidence_scores.md (driver-owned).
+
+    Replaces the uniform-0.5 stub. Three axes are scored mechanically from
+    each finding's text per phase4-confidence-scoring.md; the RAG axis is held
+    at a 0.30 PENDING floor because rag_sweep (Phase 4b.5) runs after depth —
+    final scoring incorporates RAG later. Differentiated composites pass
+    `_validate_confidence_scores_quality`. The 8-column table format is
+    byte-compatible with the prior synth (no downstream parser change).
+    Returns the finding-row count.
+    """
+    finding_files = sorted(
+        list(scratchpad.glob("depth_*_findings.md"))
+        + list(scratchpad.glob("blind_spot_*_findings.md"))
+        + list(scratchpad.glob("niche_*_findings.md"))
+        + list(scratchpad.glob("validation_sweep_findings.md"))
+        + list(scratchpad.glob("scanner_*_findings.md"))
+        + list(scratchpad.glob("design_stress_findings.md"))
+        + list(scratchpad.glob("perturbation_findings.md"))
+    )
+    seen: set[str] = set()
+    rows: list[str] = []
+    for fpath in finding_files:
+        try:
+            text = fpath.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        for raw_id, block in _iter_finding_blocks(text):
+            # F2.0: dedupe on the NORMALIZED form (with raw-uppercase
+            # fallback for new/unrecognized prefixes) so the same finding
+            # surfacing in two formats does not produce two rows.
+            norm_id = _normalize_finding_id(raw_id)
+            key = norm_id or raw_id.upper()
+            if key in seen:
+                continue
+            seen.add(key)
+            display_id = norm_id or raw_id
+            tag_scores = [s for t, s in _EVIDENCE_TAG_SCORE.items() if t in block]
+            evidence = max(tag_scores) if tag_scores else 0.5
+            dtags = len(_DEPTH_EVIDENCE_TAG_RE.findall(block))
+            quality = (
+                1.0 if dtags >= 3 else
+                0.7 if dtags == 2 else
+                0.4 if dtags == 1 else 0.1
+            )
+            consensus = 1.0   # single-domain conservative default (spec)
+            rag = 0.3         # RAG_PENDING — rag_sweep runs after depth
+            composite = round(
+                evidence * 0.25 + consensus * 0.25
+                + quality * 0.3 + rag * 0.2,
+                2,
+            )
+            classification = (
+                "CONFIDENT" if composite >= 0.7 else
+                "UNCERTAIN" if composite >= 0.4 else "LOW_CONFIDENCE"
+            )
+            rows.append(
+                f"| {display_id} | {evidence:.2f} | {consensus:.2f} | {quality:.2f} "
+                f"| {rag:.2f} | {composite:.2f} | {classification} "
+                f"| {fpath.name} |"
+            )
+    lines = [
+        "# Confidence Scores (driver-computed)",
+        "",
+        "> **Status**: DRIVER-COMPUTED — per-finding mechanical scoring. "
+        "Evidence/Consensus/Quality derived from finding text; the RAG axis "
+        "is held at a 0.30 PENDING floor (rag_sweep runs after depth; final "
+        "scoring incorporates RAG).",
+        "",
+        "| Finding ID | Evidence | Consensus | Quality | RAG | Composite "
+        "| Classification | Source |",
+        "|------------|----------|-----------|---------|-----|-----------"
+        "|----------------|--------|",
+    ]
+    lines.extend(rows)
+    if not rows:
+        lines.append("| - | - | - | - | - | - | - | (no findings produced) |")
+    try:
+        (scratchpad / "confidence_scores.md").write_text(
+            "\n".join(lines) + "\n", encoding="utf-8"
+        )
+    except OSError:
+        pass
+    return len(rows)
 
 
 def _synthesize_depth_lifecycle_artifacts(
@@ -968,86 +1144,157 @@ def _synthesize_depth_lifecycle_artifacts(
     """
     synthesized: list[str] = []
 
+    # F2.a: rebuild order matters. confidence_scores.md must be recomputed
+    # BEFORE never_cut_checkpoint.md and depth_exit.md, because the latter
+    # two read confidence's existence/size to mark `confidence-scoring`
+    # status. Original order rebuilt the checkpoint with stale/missing
+    # confidence info, then recomputed confidence — so the checkpoint
+    # recorded `SKIPPED NO_APPLICABLE_FLAG` despite real findings.
+
+    # --- confidence_scores.md (S1.3 — driver-owned mechanical scoring) ---
+    # Compute real per-finding scores when the file is missing or a stub
+    # (a SYNTHESIZED placeholder, uniform composites, near-empty, or — per
+    # F2.b — a DRIVER-COMPUTED `(no findings produced)` placeholder when
+    # real depth findings now exist on disk). A substantive LLM-written
+    # confidence file is left untouched.
+    cs = scratchpad / "confidence_scores.md"
+    cs_missing = not cs.exists() or cs.stat().st_size < 100
+    cs_stub = (not cs_missing) and bool(_depth_artifact_is_stub(cs))
+    if cs_missing or cs_stub or force:
+        _compute_depth_confidence(scratchpad, mode)
+        if cs.exists():
+            synthesized.append("confidence_scores.md")
+
     # --- never_cut_checkpoint.md ---
+    # F2.a: ALWAYS rebuild. Purely mechanical 9-line status derived from
+    # on-disk findings; previously guarded by `if force or not ncc.exists()`
+    # which left the file frozen at the attempt-1 all-SKIPPED snapshot even
+    # after attempt 2 produced real findings.
     ncc = scratchpad / "never_cut_checkpoint.md"
-    if force or not ncc.exists():
-        if pipeline == "l1":
-            role_file_map = {
-                "depth-consensus-invariant": "depth_consensus_invariant_findings.md",
-                "depth-network-surface": "depth_network_surface_findings.md",
-                "depth-state-trace": "depth_state_trace_findings.md",
-                "depth-external": "depth_external_findings.md",
-                "depth-edge-case": "depth_edge_case_findings.md",
-                "confidence-scoring": "confidence_scores.md",
-            }
+    if pipeline == "l1":
+        role_file_map = {
+            "depth-consensus-invariant": "depth_consensus_invariant_findings.md",
+            "depth-network-surface": "depth_network_surface_findings.md",
+            "depth-state-trace": "depth_state_trace_findings.md",
+            "depth-external": "depth_external_findings.md",
+            "depth-edge-case": "depth_edge_case_findings.md",
+            "confidence-scoring": "confidence_scores.md",
+        }
+    else:
+        role_file_map = {
+            "depth-token-flow": "depth_token_flow_findings.md",
+            "depth-state-trace": "depth_state_trace_findings.md",
+            "depth-edge-case": "depth_edge_case_findings.md",
+            "depth-external": "depth_external_findings.md",
+            "confidence-scoring": "confidence_scores.md",
+        }
+    if mode == "thorough":
+        role_file_map.update({
+            "design-stress": "design_stress_findings.md",
+            "perturbation": "perturbation_findings.md",
+            "skill-execution-checklist": "skill_execution_gaps.md",
+        })
+    ncc_lines = ["# Never-Cut Checkpoint (auto-synthesized by driver)\n"]
+    for role, filename in role_file_map.items():
+        fpath = scratchpad / filename
+        alias = f"depth_{filename}" if not filename.startswith("depth_") else None
+        exists = fpath.exists() and fpath.stat().st_size > 0
+        if not exists and alias:
+            alias_p = scratchpad / alias
+            if alias_p.exists() and alias_p.stat().st_size > 0:
+                exists = True
+                fpath = alias_p
+        # v2.0.3 (A3 / Codex Claim 7): substance-aware status. A header-only
+        # 29-byte file produced by an orphaned background agent must NOT be
+        # reported as SPAWNED — that hides the orphan from downstream
+        # diagnostics. Mirror the gate's substance check.
+        if exists:
+            stub_reason = _depth_artifact_is_stub(fpath)
+            if stub_reason:
+                status = f"STUB ({stub_reason})"
+            else:
+                status = "SPAWNED"
         else:
-            role_file_map = {
-                "depth-token-flow": "depth_token_flow_findings.md",
-                "depth-state-trace": "depth_state_trace_findings.md",
-                "depth-edge-case": "depth_edge_case_findings.md",
-                "depth-external": "depth_external_findings.md",
-                "confidence-scoring": "confidence_scores.md",
-            }
-        if mode == "thorough":
-            role_file_map.update({
-                "design-stress": "design_stress_findings.md",
-                "perturbation": "perturbation_findings.md",
-                "skill-execution-checklist": "skill_execution_gaps.md",
-            })
-        lines = ["# Never-Cut Checkpoint (auto-synthesized by driver)\n"]
-        for role, filename in role_file_map.items():
-            fpath = scratchpad / filename
-            # Also check depth_-prefixed alias
-            alias = f"depth_{filename}" if not filename.startswith("depth_") else None
-            exists = fpath.exists() and fpath.stat().st_size > 0
-            if not exists and alias:
-                alias_p = scratchpad / alias
-                exists = alias_p.exists() and alias_p.stat().st_size > 0
-            status = "SPAWNED" if exists else "SKIPPED NO_APPLICABLE_FLAG"
-            lines.append(f"- {role}: {status}")
-        try:
-            ncc.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            synthesized.append("never_cut_checkpoint.md")
-        except OSError:
-            pass
+            status = "SKIPPED NO_APPLICABLE_FLAG"
+        ncc_lines.append(f"- {role}: {status}")
+    try:
+        ncc.write_text("\n".join(ncc_lines) + "\n", encoding="utf-8")
+        synthesized.append("never_cut_checkpoint.md")
+    except OSError:
+        pass
 
     # --- depth_exit.md ---
+    # F2.a + F2.c: ALWAYS rebuild the structured header; preserve genuine
+    # LLM body content under `## Original LLM depth exit (preserved)`, but
+    # FIRST strip any prior driver-generated wrapper from the existing
+    # file so the preservation does not nest itself recursively across
+    # repeated calls. Without this strip, each call would wrap the prior
+    # call's full file (including its own header) as "original LLM body",
+    # bloating the file unboundedly across attempts/repairs.
     dep = scratchpad / "depth_exit.md"
-    # v2.6.3: if existing file lacks structured fields, prepend them
-    # rather than replacing (preserves LLM's iteration/confidence data).
-    # force=True (Codex): full overwrite. force=False (Claude): patch only.
-    dep_needs_synth = force or not dep.exists()
     dep_existing_text = ""
-    if not dep_needs_synth and dep.exists():
+    if dep.exists() and not force:
         try:
             dep_existing_text = dep.read_text(encoding="utf-8", errors="replace")
-            if not re.search(r"(?im)^\s*[-*]?\s*criterion\s*:\s*[1-4]", dep_existing_text):
-                dep_needs_synth = True
         except Exception:
-            dep_needs_synth = True
-    if dep_needs_synth:
-        depth_files = list(scratchpad.glob("depth_*_findings.md"))
-        explored = [f.name for f in depth_files if f.stat().st_size > 0]
-        lines = [
-            "# Depth Exit (auto-synthesized by driver)\n",
-            "- criterion: 1",
-            "- rationale: Single-pass depth completed; all spawned agents produced output",
-            "- explored_paths:",
-        ]
-        for name in explored:
-            lines.append(f"  - {name}")
-        if not explored:
-            lines.append("  - (no depth findings files found)")
-        # Preserve LLM content below the structured header
-        if dep_existing_text and not force:
-            lines.append("\n---\n")
-            lines.append("## Original LLM depth exit (preserved)\n")
-            lines.append(dep_existing_text)
-        try:
-            dep.write_text("\n".join(lines) + "\n", encoding="utf-8")
-            synthesized.append("depth_exit.md")
-        except OSError:
-            pass
+            dep_existing_text = ""
+    # Strip prior driver wrapper.
+    llm_only = dep_existing_text
+    if llm_only:
+        # If there's a previously-preserved LLM block, keep only what's
+        # below the `## Original LLM depth exit (preserved)` marker.
+        m = re.search(
+            r"(?ms)^##\s+Original\s+LLM\s+depth\s+exit\s+\(preserved\)\s*\n+",
+            llm_only,
+        )
+        if m:
+            llm_only = llm_only[m.end():]
+        # Or if no marker but the text starts with the driver header, the
+        # whole file is a prior driver wrapper with no real LLM body.
+        elif re.match(
+            r"\s*#\s+Depth\s+Exit\s+\(auto-synthesized", llm_only
+        ):
+            llm_only = ""
+    # v2.0.3 (A3): split depth files into substantive vs stub.
+    # depth_exit.md must NOT list stub files under "completed roles" —
+    # that produces a misleading exit rationale when orphan-background
+    # leaves header-only files on disk.
+    depth_files = list(scratchpad.glob("depth_*_findings.md"))
+    completed: list[str] = []
+    stub_paths: list[str] = []
+    for f in depth_files:
+        if f.stat().st_size == 0:
+            continue
+        if _depth_artifact_is_stub(f):
+            stub_paths.append(f.name)
+        else:
+            completed.append(f.name)
+    dep_lines = [
+        "# Depth Exit (auto-synthesized by driver)\n",
+        "- criterion: 1",
+        "- rationale: Substance-aware exit (v2.0.3). Stub files are listed "
+        "separately and NOT counted as completion.",
+        "- explored_paths:",
+    ]
+    for name in completed:
+        dep_lines.append(f"  - {name}")
+    if not completed:
+        dep_lines.append("  - (no substantive depth findings files found)")
+    if stub_paths:
+        dep_lines.append("- stub_paths (NOT counted as completion):")
+        for name in stub_paths:
+            dep_lines.append(f"  - {name}")
+    if llm_only.strip() and not force:
+        dep_lines.append("\n---\n")
+        dep_lines.append("## Original LLM depth exit (preserved)\n")
+        # rstrip to stabilize across repeated calls — without it, each
+        # iteration's `"\n".join` would accumulate a trailing newline.
+        dep_lines.append(llm_only.rstrip())
+    try:
+        dep.write_text("\n".join(dep_lines) + "\n", encoding="utf-8")
+        synthesized.append("depth_exit.md")
+    except OSError:
+        pass
 
     return synthesized
 
@@ -1351,6 +1598,8 @@ def _record_phase_cost(scratchpad: Path, phase_name: str, model: str,
             except Exception:
                 pass
             fields["num_turns"] = num_turns or 1
+        elif backend == "claude-pty":
+            fields.update(parse_transcript_usage(stdio_log))
         else:
             envelope = _extract_json_envelope(tail)
             if envelope:
@@ -1487,6 +1736,21 @@ def _extract_json_envelope(tail_text: str) -> Optional[dict]:
     return None
 
 
+def _detect_rate_limit_jsonl_tail(tail_text: str) -> bool:
+    """Detect rate limits in Claude Code session JSONL events."""
+    for line in tail_text.splitlines()[-200:]:
+        line = line.strip()
+        if not line.startswith("{"):
+            continue
+        try:
+            event = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(event, dict) and event_is_rate_limited(event):
+            return True
+    return False
+
+
 def detect_rate_limit(stdio_log: Path, tail_bytes: int = 65536) -> bool:
     """Return True iff an actual API rate limit is detected.
 
@@ -1512,6 +1776,8 @@ def detect_rate_limit(stdio_log: Path, tail_bytes: int = 65536) -> bool:
     envelope = _extract_json_envelope(tail)
     if envelope is not None:
         # Structured path: trust only fields, ignore prose.
+        if event_is_rate_limited(envelope):
+            return True
         if envelope.get("is_error") is True:
             status = envelope.get("api_error_status")
             if status in _API_RATE_LIMIT_STATUSES:
@@ -1530,11 +1796,454 @@ def detect_rate_limit(stdio_log: Path, tail_bytes: int = 65536) -> bool:
         # Envelope parsed cleanly, no structured rate-limit signal → NOT
         # rate-limited. Do NOT fall through to text regex — that's the
         # false-positive path.
+        if _detect_rate_limit_jsonl_tail(tail):
+            return True
         return False
 
     # Envelope not parseable (subprocess likely crashed pre-envelope).
     # Use strict text regex: requires structured error prefix.
+    if _detect_rate_limit_jsonl_tail(tail):
+        return True
     return bool(_STRUCTURED_RATE_LIMIT_RE.search(tail))
+
+
+# v2.0.3 (A2): orphaned-background-agent detection. The LLM uses Task with
+# run_in_background:true on multiple agents, then end_turn — agents are
+# killed when the subprocess exits, leaving WRITE-THEN-VERIFY reservation
+# headers on disk. Detection runs post-subprocess; writes a diagnostic file
+# that the retry-hint dispatcher (A4) consumes. Does NOT affect gate
+# pass/fail (substance gate from Stage 1.5 is the authority).
+_PLAMEN_STUB_HEADER_RE = re.compile(
+    r"\A\s*#+\s+[^\n]{1,80}\s*\n?\s*\Z",
+    re.MULTILINE,
+)
+
+
+def _is_header_only_stub(path: Path, max_bytes: int = 120) -> bool:
+    """True iff `path` is a header-only file (≤120 bytes containing only a
+    single markdown heading). This is the orphan-background fingerprint:
+    the WRITE-THEN-VERIFY reservation header reached disk; full content
+    never did.
+    """
+    try:
+        size = path.stat().st_size
+        if size == 0 or size > max_bytes:
+            return False
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    return bool(_PLAMEN_STUB_HEADER_RE.match(content))
+
+
+def _resolve_never_cut_targets(scratchpad: Path, phase_name: str,
+                                 mode: str, pipeline: str) -> list[str]:
+    """Return the flat list of canonical artifact filenames that the phase
+    is expected to produce per the never-cut groups (any-of groups are
+    collapsed to the first canonical name). Used by the orphan detector to
+    enumerate which files to scan for stub fingerprints — works around
+    `Phase.expected_artifacts=["depth_*_findings.md"]` (a glob, not an
+    enumeration) per Codex Round-1 Claim 5.
+    """
+    if phase_name != "depth":
+        return []
+    try:
+        if pipeline == "l1":
+            groups = l1_never_cut_groups(mode)
+        else:
+            groups = sc_never_cut_groups(mode)
+    except Exception:
+        return []
+    # any-of group: pick the first canonical name (e.g.
+    # ["validation_sweep_findings.md", "scanner_validation_findings.md"]
+    # collapses to "validation_sweep_findings.md").
+    return [group[0] for group in groups if group]
+
+
+def _slugify_cwd_for_transcript(project_root: str) -> str:
+    """v2.0.5 (B1): convert a project root path to the Claude Code
+    transcript directory slug. Claude Code stores per-session transcript
+    JSONL files at `~/.claude/projects/{slug}/{session_id}.jsonl` where
+    the slug replaces path separators, the drive colon, AND spaces with
+    dashes (verified empirically against
+    `~/.claude/projects/D--Programming-Web3-Contests-DODO-Crosschain-Dex-...`).
+
+    Example: ``D:\\Programming\\X Audit\\repo`` →
+    ``D--Programming-X-Audit-repo``.
+    """
+    s = str(project_root)
+    # Drive letter + colon → drive letter + double-dash
+    s = re.sub(r"^([A-Za-z]):", r"\1-", s)
+    # Path separators (\, /) AND whitespace → dash
+    s = re.sub(r"[\\/\s]+", "-", s)
+    return s
+
+
+def _find_transcript_jsonl(project_root: str) -> Optional[Path]:
+    """v2.0.5 (B1): locate the most recent Claude Code transcript JSONL
+    for the given project root. Returns None if not discoverable.
+
+    Multiple session files may exist per project (one per `claude -p`
+    invocation). The most recent file by mtime is the one corresponding
+    to the just-finished subprocess.
+    """
+    slug = _slugify_cwd_for_transcript(project_root)
+    candidates = (
+        Path.home() / ".claude" / "projects" / slug,
+        plamen_home().parent / "projects" / slug,
+    )
+    for parent in candidates:
+        if not parent.is_dir():
+            continue
+        files = sorted(parent.glob("*.jsonl"),
+                       key=lambda p: p.stat().st_mtime, reverse=True)
+        if files:
+            return files[0]
+    return None
+
+
+# v2.0.5 (B1): Claude Code's Task tool surfaces as either name="Task"
+# (older transcripts) or name="Agent" (newer Claude Code releases).
+# Both must be scanned for the orphan fingerprint.
+_TRANSCRIPT_TASK_NAMES = ("Task", "Agent")
+
+
+def _walk_transcript_tool_uses(obj: Any, out: list[dict]) -> None:
+    """v2.0.5 (B1): iterative walk over a parsed JSONL entry collecting
+    every nested `tool_use` whose name is in `_TRANSCRIPT_TASK_NAMES`
+    (Task | Agent). Mutates `out` in place — module-level so the
+    structural-integrity test doesn't flag a nested closure.
+    """
+    stack: list[Any] = [obj]
+    while stack:
+        cur = stack.pop()
+        if isinstance(cur, dict):
+            if (cur.get("type") == "tool_use"
+                    and cur.get("name") in _TRANSCRIPT_TASK_NAMES):
+                inp = cur.get("input") or {}
+                if isinstance(inp, dict):
+                    out.append({
+                        "id": cur.get("id", ""),
+                        "subagent_type": inp.get("subagent_type", ""),
+                        "description": (inp.get("description") or "")[:120],
+                        "run_in_background": bool(inp.get("run_in_background")),
+                    })
+            stack.extend(cur.values())
+        elif isinstance(cur, list):
+            stack.extend(cur)
+
+
+def _scan_transcript_for_background_orphan(
+    transcript_path: Path,
+) -> Optional[dict]:
+    """v2.0.5 (B1): definitive-evidence path for orphan-background
+    detection. Parse a Claude Code session JSONL and look for ≥2
+    tool_use calls (name ∈ {Task, Agent}) with run_in_background:true
+    followed by stop_reason=end_turn without a subsequent collection.
+
+    Returns a partial dict with structured evidence, or None.
+    """
+    if not transcript_path.is_file():
+        return None
+    all_calls: list[dict] = []
+    last_stop_reason: Optional[str] = None
+    try:
+        with transcript_path.open(encoding="utf-8", errors="replace") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    obj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                _walk_transcript_tool_uses(obj, all_calls)
+                if obj.get("type") == "assistant":
+                    sr = (obj.get("message") or {}).get("stop_reason")
+                    if sr:
+                        last_stop_reason = sr
+    except OSError:
+        return None
+
+    bg_calls = [c for c in all_calls if c["run_in_background"]]
+    if len(bg_calls) < 2:
+        return None
+    if last_stop_reason != "end_turn":
+        # Crash/rate-limit/different terminal — not the orphan signature.
+        return None
+    return {
+        "transcript_path": str(transcript_path),
+        "task_count_background": len(bg_calls),
+        "turn_ended_at": last_stop_reason,
+        "agent_ids": [c["id"] for c in bg_calls],
+        "subagent_types": [c["subagent_type"] for c in bg_calls],
+    }
+
+
+def detect_background_orphan(
+    stdio_log: Path,
+    scratchpad: Path,
+    phase_name: str,
+    mode: str,
+    pipeline: str,
+    rc: int,
+    *,
+    backend: str = "claude",
+    project_root: Optional[str] = None,
+) -> Optional[dict]:
+    """Detect the orphaned-background-agent pattern after a subprocess exits.
+
+    Returns a diagnostic dict if the pattern is detected and writes it to
+    `{scratchpad}/_diagnostic_orphan_{phase_name}.json`. Returns None
+    otherwise.
+
+    Detection priority (Codex Round-2 Claim 10):
+      - **Definitive evidence:** transcript JSONL proves ≥2 Task calls
+        with `run_in_background:true` followed by `end_turn` without
+        subsequent collection AND ≥2 expected files are header-only stubs
+        → emit diagnostic REGARDLESS of rc.
+      - **Heuristic path:** transcript unavailable / unparseable; `rc == 0`
+        AND ≥2 expected files are header-only stubs → emit with
+        `evidence:"heuristic"`.
+      - Otherwise → return None (silent).
+    """
+    targets = _resolve_never_cut_targets(scratchpad, phase_name, mode, pipeline)
+    if not targets:
+        return None
+    stub_files = [t for t in targets if _is_header_only_stub(scratchpad / t)]
+    if len(stub_files) < 2:
+        return None
+
+    # v2.0.5 (B1): definitive-evidence path via transcript JSONL.
+    # Works regardless of rc (per Codex Round-2 Claim 10) — the LLM's
+    # documented behavior is the diagnosis; rc quirks must not suppress.
+    transcript_evidence: Optional[dict] = None
+    if backend == "claude" and project_root:
+        transcript_path = _find_transcript_jsonl(project_root)
+        if transcript_path is not None:
+            transcript_evidence = _scan_transcript_for_background_orphan(
+                transcript_path
+            )
+
+    if transcript_evidence:
+        diag = {
+            "phase": phase_name,
+            "evidence": "transcript_jsonl",
+            "rc": rc,
+            "backend": backend,
+            "stub_files": stub_files,
+            "stub_count": len(stub_files),
+            "fingerprint": "tool_use_run_in_background_then_end_turn",
+            "detected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            **transcript_evidence,
+        }
+    else:
+        # Heuristic path: rc==0 required (orphan is a clean exit). If the
+        # subprocess crashed or timed out, the cause is different.
+        if rc != 0:
+            return None
+        diag = {
+            "phase": phase_name,
+            "evidence": "heuristic",
+            "rc": rc,
+            "backend": backend,
+            "stub_files": stub_files,
+            "stub_count": len(stub_files),
+            "fingerprint": "header_only_files_with_clean_rc",
+            "detected_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+    try:
+        out = scratchpad / f"_diagnostic_orphan_{phase_name}.json"
+        out.write_text(json.dumps(diag, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+    return diag
+
+
+_INVENTORY_CHUNK_RE = re.compile(r"^findings_inventory_chunk_([a-z])\.md$")
+
+
+def _is_valid_inventory_chunk_output(path: Path) -> bool:
+    """v2.0.4 (A'2): lightweight side-effect-free validator for an
+    inventory chunk artifact. Replicates the substantive checks of the
+    inventory_chunk_* gate WITHOUT calling _run_phase_validators (which
+    has side effects per Codex Round-2 Claim 11).
+
+    Inventory chunk gate requirements (derived from
+    phase4a-inventory-prompt body lines 200-208 and the prompt-builder
+    inventory_scope_directive at plamen_prompt.py:2206-2280):
+
+      - file size >= 200 bytes (gate min_artifact_bytes)
+      - contains at least one `### Finding [CC-` heading (the
+        chunk-row contract; CC-N IDs are mandatory per the prompt body)
+      - contains at least one `**Impact**:` line (checklist requirement
+        — every CC block must list the impact)
+      - contains at least one `**Source IDs**:` reference (cross-phase
+        parity contract — downstream merge maps CC IDs back to upstream)
+
+    Returns True iff all four hold. No side effects. The general
+    `_run_phase_validators` belongs to Phase C with a `dry_run=True`
+    extraction; A' uses this lightweight check.
+    """
+    try:
+        if path.stat().st_size < 200:
+            return False
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    if not re.search(r"(?m)^###\s+Finding\s+\[CC-", text):
+        return False
+    if not re.search(r"(?m)^\*\*Impact\*\*:", text):
+        return False
+    if not re.search(r"(?m)^\*\*Source IDs\*\*:", text):
+        return False
+    return True
+
+
+def _record_artifact_adoption(
+    scratchpad: Path,
+    project_root: str,
+    name: str,
+    *,
+    owning_phase: str,
+    adopted_from: str,
+) -> None:
+    """v2.0.4 (A'2): record adoption provenance in `_artifact_state.json`.
+
+    Extends the existing `_artifact_record` schema (validators.py:1321)
+    with three optional fields:
+      - `adopted_from`: the phase that physically produced the file
+      - `adopted_at`: ISO timestamp of adoption
+      - `adoption_owning_phase`: the phase whose expected_artifact this is
+
+    Backward-compatible: artifacts without these fields are normal
+    phase-owned outputs.
+    """
+    try:
+        state = _read_artifact_state(scratchpad)
+    except Exception as e:
+        log.debug(f"[adoption] could not read artifact state: {e}")
+        return
+    artifacts = state.setdefault("artifacts", {})
+    record = _artifact_record(
+        scratchpad, project_root, name,
+        owner_phase=owning_phase, status="ACTIVE",
+    )
+    if record is None:
+        return
+    record["adopted_from"] = adopted_from
+    record["adopted_at"] = datetime.now(timezone.utc).isoformat()
+    record["adoption_owning_phase"] = owning_phase
+    artifacts[name] = record
+    try:
+        _write_artifact_state(scratchpad, state)
+    except Exception as e:
+        log.debug(f"[adoption] could not write artifact state: {e}")
+
+
+def _try_adopt_inventory_sibling(
+    scratchpad: Path,
+    project_root: str,
+    current_phase_name: str,
+    foreign_name: str,
+) -> bool:
+    """v2.0.4 (A'2): attempt to adopt a sibling inventory_chunk output.
+
+    Adoption semantics (Phase A' tactical, inventory-scoped):
+      - The foreign artifact must be a sibling chunk's expected output
+        (e.g., chunk_a is running and the foreign file is
+        findings_inventory_chunk_b.md).
+      - The foreign file's content must pass the lightweight inventory
+        chunk validator (no side effects, no recursion into the general
+        phase validator per Codex Round-2 Claim 11).
+      - On success: the file STAYS in the scratchpad root at its
+        expected name. Provenance is recorded in `_artifact_state.json`.
+        The downstream chunk_b phase will execute, but its subprocess
+        will see the existing substantive file via the resumption
+        protocol and exit immediately without re-deriving.
+      - Phase C will generalize this with full skip-by-adoption via
+        the declarative `Phase.adoptable_outputs` contract and
+        `_run_phase_validators_readonly`.
+
+    Returns True iff the adoption is accepted. False → caller should
+    quarantine instead.
+    """
+    m = _INVENTORY_CHUNK_RE.match(foreign_name)
+    if not m:
+        return False
+    owning_chunk_letter = m.group(1)
+    owning_phase_name = f"inventory_chunk_{owning_chunk_letter}"
+    if owning_phase_name == current_phase_name:
+        return False  # not a sibling — it's our own output
+    foreign_path = scratchpad / foreign_name
+    if not foreign_path.exists():
+        return False
+    if not _is_valid_inventory_chunk_output(foreign_path):
+        log.warning(
+            f"[{current_phase_name}] cannot adopt {foreign_name}: "
+            f"failed inventory chunk validator (size/CC-heading/"
+            f"Impact/Source IDs missing). Will quarantine instead."
+        )
+        return False
+    _record_artifact_adoption(
+        scratchpad, project_root, foreign_name,
+        owning_phase=owning_phase_name,
+        adopted_from=current_phase_name,
+    )
+    log.warning(
+        f"[{current_phase_name}] adopted {foreign_name} for "
+        f"{owning_phase_name} (validator passed; provenance recorded). "
+        f"{owning_phase_name} subprocess will exit via resumption protocol."
+    )
+    return True
+
+
+def _archive_orphan_stubs(
+    scratchpad: Path, phase_name: str, diag: dict
+) -> Optional[Path]:
+    """v2.0.3 (A4): move orphan-background stub files out of the scratchpad
+    into `_overflow/{phase_name}/orphan_stubs/{timestamp}/` along with a
+    manifest. Returns the archive directory path or None on failure.
+
+    Rationale: the retry attempt should treat orphan stubs as MISSING, not
+    as partial work. Moving them out of the scratchpad root ensures the
+    resumption-protocol substantive-content check sees them as absent.
+    The archive also provides a concrete regression fixture for tests.
+    """
+    stubs = diag.get("stub_files") or []
+    if not stubs:
+        return None
+    ts = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    archive_dir = scratchpad / "_overflow" / phase_name / "orphan_stubs" / ts
+    try:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return None
+    moved: list[str] = []
+    for name in stubs:
+        src = scratchpad / name
+        if not src.exists():
+            continue
+        try:
+            dst = archive_dir / name
+            src.rename(dst)
+            moved.append(name)
+        except OSError as e:
+            log.debug(f"[{phase_name}] could not archive stub {name}: {e}")
+    try:
+        manifest = archive_dir / "manifest.txt"
+        manifest.write_text(
+            f"# Orphan-background stub archive ({phase_name})\n"
+            f"# Detected at: {diag.get('detected_at','unknown')}\n"
+            f"# Evidence: {diag.get('evidence','unknown')}\n"
+            f"# rc: {diag.get('rc','unknown')}\n"
+            f"# Backend: {diag.get('backend','unknown')}\n"
+            f"# Fingerprint: {diag.get('fingerprint','unknown')}\n"
+            f"# Stub files archived:\n"
+            + "".join(f"#   - {m}\n" for m in moved),
+            encoding="utf-8",
+        )
+    except OSError:
+        pass
+    return archive_dir
 
 
 _VERIFY_HINT_ID_RE = re.compile(
@@ -1685,13 +2394,15 @@ def _run_verify_recovery_shard(
         log.warning(f"[verify_recovery] snapshot write failed: {e}")
         return [fid for fid, _ in missing]
 
-    # Build subprocess command.
+    # Build subprocess command. Mirrors run_phase flags so verify-
+    # recovery shards benefit from the same cache-reuse improvements.
     cmd = [
         CLAUDE_BIN, "-p",
         "--model", effective_model,
         "--output-format", "json",
         "--no-session-persistence",
         "--dangerously-skip-permissions",
+        "--exclude-dynamic-system-prompt-sections",
         "--add-dir", config["project_root"],
         "--add-dir", plamen_home().as_posix(),
     ]
@@ -1718,12 +2429,29 @@ def _run_verify_recovery_shard(
             "--strict-mcp-config", "--mcp-config", iso,
         ])
 
-    # Subprocess env.
+    # Subprocess env. Mirrors `run_phase`'s env composition — tool output
+    # caps + context-editing beta — so verify-recovery shards benefit
+    # from the same cost-cutting that main verify shards do. Recovery
+    # shards run security-verifier (opus), making them prime candidates.
+    _existing_beta_rec = os.environ.get("ANTHROPIC_BETA", "").strip()
+    _our_beta_rec = "context-management-2025-06-27"
+    _merged_beta_rec = (
+        _existing_beta_rec + "," + _our_beta_rec
+        if _existing_beta_rec and _our_beta_rec not in _existing_beta_rec
+        else _our_beta_rec
+    )
     subprocess_env = {
         **os.environ,
         "ANTHROPIC_DISABLE_AUTOUPDATE": "1",
         "ANTHROPIC_DEFAULT_OPUS_MODEL": PLAMEN_OPUS_MODEL,
         "PLAMEN_SCRATCHPAD": str(scratchpad),
+        "BASH_MAX_OUTPUT_LENGTH": os.environ.get(
+            "BASH_MAX_OUTPUT_LENGTH", "30000"
+        ),
+        "MAX_MCP_OUTPUT_TOKENS": os.environ.get(
+            "MAX_MCP_OUTPUT_TOKENS", "8000"
+        ),
+        "ANTHROPIC_BETA": _merged_beta_rec,
     }
 
     # Platform-specific Popen kwargs.
@@ -1839,6 +2567,63 @@ _EARLY_COMPLETE_IDLE_GRACE_SECONDS = int(os.environ.get(
 ))
 
 
+_RUNAWAY_TOOL_RESULT_BYTES = 500_000
+_TOOL_RESULT_SCAN_INTERVAL_S = 60.0
+
+
+def _scan_claude_tool_results_for_runaways(
+    start_time: float, already_warned: set[str]
+) -> list[tuple[str, int]]:
+    """Detect single tool-result blobs exceeding the runaway threshold.
+
+    A subagent that issues a Bash/Glob/Read against a huge directory (e.g.
+    %TEMP%, $HOME, ~/.cache) can dump multi-MB results into the claude session's
+    tool-results dir, which blocks the coordinator and produces no audit value.
+
+    Returns list of (path, size) for newly-detected runaways. Mutates
+    already_warned so each path is reported once.
+    """
+    try:
+        projects = Path.home() / ".claude" / "projects"
+        if not projects.is_dir():
+            return []
+    except Exception:
+        return []
+    out: list[tuple[str, int]] = []
+    try:
+        for proj_dir in projects.iterdir():
+            if not proj_dir.is_dir():
+                continue
+            for sess in proj_dir.iterdir():
+                if not sess.is_dir():
+                    continue
+                tr = sess / "tool-results"
+                if not tr.is_dir():
+                    continue
+                try:
+                    for f in tr.iterdir():
+                        if not f.is_file():
+                            continue
+                        try:
+                            st = f.stat()
+                            if st.st_mtime < start_time:
+                                continue
+                            if st.st_size < _RUNAWAY_TOOL_RESULT_BYTES:
+                                continue
+                        except OSError:
+                            continue
+                        key = str(f)
+                        if key in already_warned:
+                            continue
+                        already_warned.add(key)
+                        out.append((key, st.st_size))
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return out
+
+
 def _breadth_manifest_complete_reason(scratchpad: Path, phase: Phase) -> Optional[str]:
     """Return a reason when every manifest-declared breadth output is substantial."""
     outputs = parse_breadth_manifest_outputs(scratchpad) or []
@@ -1926,6 +2711,8 @@ def _wait_with_heartbeat(
     last_activity_signature = _scratchpad_activity_signature(scratchpad)
     last_display_time = time.time()
     last_scan_time = time.time()
+    last_tool_result_scan_time = time.time()
+    tool_result_warned: set[str] = set()
     early_complete_since: Optional[float] = None
     early_complete_last_activity: Optional[float] = None
     early_complete_reason: Optional[str] = None
@@ -1979,13 +2766,26 @@ def _wait_with_heartbeat(
                         if protected_patterns and _matches_any_pattern(
                             p.name, list(protected_patterns)
                         ):
-                            display._clear_spinner()
-                            log.error(
-                                f"[{phase_name}] live containment abort: "
-                                f"protected downstream artifact appeared: {p.name}"
-                            )
-                            _terminate_process_tree(proc, grace_s=5)
-                            return -4
+                            # F7: depth's chain/synthesis writes are benign
+                            # post-completion overruns — quarantine post-run
+                            # rather than killing the subprocess mid-run.
+                            if (
+                                phase_name == "depth"
+                                and _is_benign_depth_foreign_artifact(p.name)
+                            ):
+                                log.warning(
+                                    f"[{phase_name}] foreign-artifact leak "
+                                    f"(benign, will quarantine post-run): "
+                                    f"{p.name}"
+                                )
+                            else:
+                                display._clear_spinner()
+                                log.error(
+                                    f"[{phase_name}] live containment abort: "
+                                    f"protected downstream artifact appeared: {p.name}"
+                                )
+                                _terminate_process_tree(proc, grace_s=5)
+                                return -4
                 scip_dir = scratchpad / "scip"
                 if scip_dir.is_dir():
                     for p in scip_dir.iterdir():
@@ -2007,6 +2807,22 @@ def _wait_with_heartbeat(
                 observed_activity = True
                 last_activity_signature = cur_activity_signature
                 last_activity_tc_size = cur_activity_tc_size
+
+            # Runaway tool-result watchdog: a subagent that lists a huge
+            # out-of-scope directory (e.g. system temp, home dir) can dump
+            # multi-MB results that block the coordinator and produce no
+            # audit value. Warn so the operator can halt early.
+            if now - last_tool_result_scan_time >= _TOOL_RESULT_SCAN_INTERVAL_S:
+                last_tool_result_scan_time = now
+                for path, size in _scan_claude_tool_results_for_runaways(
+                    start_time, tool_result_warned
+                ):
+                    log.warning(
+                        f"[{phase_name}] runaway tool result detected: "
+                        f"{size / 1024:.0f} KB at {path} -- a subagent likely "
+                        f"read outside PROJECT_ROOT/SCRATCHPAD. Coordinator "
+                        f"may stall waiting for that subagent."
+                    )
 
             if early_complete:
                 try:
@@ -2129,6 +2945,25 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
                 pass
     # Codex backend: translate prompt paths and inject tool preamble.
     backend = config.get("cli_backend", "claude")
+    _explicit_claude_exec_mode = (
+        config.get("claude_exec_mode")
+        or os.environ.get("PLAMEN_CLAUDE_EXEC_MODE")
+    )
+    claude_exec_mode = (_explicit_claude_exec_mode or "pty").strip().lower()
+    if claude_exec_mode not in ("pty", "headless"):
+        log.warning(
+            f"[{phase.name}] unknown claude_exec_mode={claude_exec_mode!r}; "
+            "falling back to pty"
+        )
+        claude_exec_mode = "pty"
+    if (
+        backend == "claude"
+        and claude_exec_mode == "pty"
+        and not _explicit_claude_exec_mode
+        and Path(CLAUDE_BIN).name.lower() not in ("claude", "claude.cmd", "claude.exe")
+    ):
+        claude_exec_mode = "headless"
+    is_claude_pty = backend == "claude" and claude_exec_mode == "pty"
 
     timeout = scale_timeout(
         phase.base_timeout_s, config["project_root"], config["language"],
@@ -2201,6 +3036,20 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
                 output_last_message=olm_path,
                 writable_dirs=codex_writable,
             )
+    elif is_claude_pty:
+        session_id = str(uuid.uuid4())
+        bootstrap_prompt = (
+            "Read and fully execute every instruction in "
+            f"{snap.as_posix()}. When done, output your one-line DONE summary."
+        )
+        cmd = [
+            CLAUDE_BIN,
+            "--model", effective_model,
+            "--session-id", session_id,
+            "--dangerously-skip-permissions",
+            "--add-dir", config["project_root"],
+            "--add-dir", plamen_home().as_posix(),
+        ]
     else:
         cmd = [
             CLAUDE_BIN, "-p",
@@ -2208,6 +3057,17 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
             "--output-format", "json",
             "--no-session-persistence",
             "--dangerously-skip-permissions",
+            # Anthropic-documented cache-reuse improvement. Moves volatile
+            # per-machine sections (cwd, env info, git status, memory
+            # paths) out of the cached system prefix into the first user
+            # message, so the system-prompt prefix stays byte-identical
+            # across subprocess invocations and the prompt cache hits
+            # more aggressively. Quoting `claude --help`:
+            # > "Move per-machine sections (cwd, env info, memory paths,
+            # >  git status) from the system prompt into the first user
+            # >  message. Improves cross-user prompt-cache reuse."
+            # Single-flag, zero-risk (Anthropic's own recommended flag).
+            "--exclude-dynamic-system-prompt-sections",
             "--add-dir", config["project_root"],
             # Agents must read ~/.claude/rules/*.md, prompts/{lang}/*.md, and
             # skills/**/SKILL.md. Add the Claude home explicitly so permission
@@ -2332,7 +3192,21 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
     log_path = scratchpad / f"_stdio_{phase.name}.attempt{attempt}.log"
     canonical = scratchpad / f"_stdio_{phase.name}.log"
 
-    _cli_label = "codex exec" if backend == "codex" else "claude -p"
+    if is_claude_pty:
+        # Claude's positional prompt must be the final argv element. Options
+        # appended after it are parsed as command text or ignored, which drops
+        # Claude into an empty interactive session.
+        #
+        # Some Claude flags accept multiple values (notably --mcp-config), so
+        # terminate option parsing before the prompt or it is consumed as an
+        # extra config path.
+        cmd.append("--")
+        cmd.append(bootstrap_prompt)
+
+    _cli_label = (
+        "codex exec" if backend == "codex"
+        else ("claude PTY" if is_claude_pty else "claude -p")
+    )
     log.info(
         f"[{phase.name}] spawning {_cli_label} (model={effective_model}, "
         f"timeout={timeout}s, attempt={attempt})"
@@ -2375,7 +3249,68 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
         # Task uses bare `opus`, keep it on the pinned Opus version.
         "ANTHROPIC_DEFAULT_OPUS_MODEL": PLAMEN_OPUS_MODEL,
         "PLAMEN_SCRATCHPAD": str(scratchpad),
+        # Cap tool output to keep huge Bash/MCP dumps from bloating
+        # the context window as turn count grows. Calibrated against
+        # observed tool usage: Read isn't capped here (separate tool),
+        # but `forge test -vvv` on a failing PoC routinely emits
+        # 10-50KB of call trace that verifiers need to classify the
+        # failure. A 12k char Bash cap (round-1 default) would truncate
+        # that revert detail and force [CODE-TRACE] fallbacks — a recall
+        # regression. 30k chars (~7.5k tokens) survives normal forge
+        # traces while still preventing 200KB raw dumps.
+        # MCP 8k tokens (~32k chars) is fine for slither/solodit/RAG
+        # results which top out at ~10KB typical.
+        # Pattern documented in Anthropic's "Writing tools for agents":
+        # https://www.anthropic.com/engineering/writing-tools-for-agents
+        "BASH_MAX_OUTPUT_LENGTH": os.environ.get(
+            "BASH_MAX_OUTPUT_LENGTH", "30000"
+        ),
+        "MAX_MCP_OUTPUT_TOKENS": os.environ.get(
+            "MAX_MCP_OUTPUT_TOKENS", "8000"
+        ),
     }
+    if is_claude_pty:
+        subprocess_env["PLAMEN_BOOTSTRAP_IN_ARGV"] = "1"
+    # Opt the highest-turn-count phases (depth + verify shards, plus
+    # heavy exploratory phases) into Anthropic's context-editing beta.
+    # The model can drop stale tool results from earlier turns when
+    # context fills, instead of paying to drag them through every
+    # subsequent call. Anthropic's own benchmark showed -84% token
+    # consumption AND +29% performance on 100-turn workloads —
+    # quality-positive, not a trade-off:
+    # https://platform.claude.com/docs/en/build-with-claude/context-editing
+    #
+    # Scope rationale:
+    #   recon (~26 turns)   — heavy Read/Grep exploration; dropped
+    #                         reads can be re-fetched if needed.
+    #   rescan (~27 turns)  — same workload profile as recon.
+    #   depth               — original target; tool-heavy multi-agent.
+    #   verify_*            — forge test -vvv across many findings.
+    # Deliberately EXCLUDED:
+    #   breadth             — multi-agent fan-out; user wants to keep
+    #                         it on default cache semantics until the
+    #                         recon/rescan expansion is validated.
+    #   inventory chunks    — short turn count; marginal savings.
+    #   instantiate, etc.   — too short for context-editing to matter.
+    _CONTEXT_EDITING_PHASES = (
+        "recon",
+        "rescan",
+        "depth",
+        *L1_VERIFY_PHASE_NAMES,
+        *SC_VERIFY_PHASE_NAMES,
+    )
+    if phase.name in _CONTEXT_EDITING_PHASES:
+        # Preserve any existing ANTHROPIC_BETA the user set (e.g. for
+        # other features); append our beta to the list rather than
+        # overwrite.
+        _existing_beta = os.environ.get("ANTHROPIC_BETA", "").strip()
+        _our_beta = "context-management-2025-06-27"
+        if _existing_beta and _our_beta not in _existing_beta:
+            subprocess_env["ANTHROPIC_BETA"] = (
+                _existing_beta + "," + _our_beta
+            )
+        else:
+            subprocess_env["ANTHROPIC_BETA"] = _our_beta
     # On Windows, claude.cmd is a batch file; Popen without
     # CREATE_NO_WINDOW spawns a visible console per subprocess.
     popen_kwargs: dict[str, Any] = {}
@@ -2386,6 +3321,145 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
         )
     else:
         popen_kwargs["start_new_session"] = True
+
+    if is_claude_pty:
+        known_artifacts: set[str] = set()
+        try:
+            for p in scratchpad.iterdir():
+                if not p.name.startswith("_"):
+                    known_artifacts.add(p.name)
+        except Exception:
+            pass
+        last_scan_time = 0.0
+        last_status_time = 0.0
+        protected_patterns = _protected_phase_write_patterns(phase.name)
+
+        def _pty_poll(now: float, _state: Any) -> None:
+            nonlocal last_scan_time, last_status_time
+            elapsed = int(now - start)
+            display.spin(elapsed)
+            if display.graceful_stop.requested:
+                raise _PtyStop(-3)
+            if now - last_scan_time < _ARTIFACT_SCAN_INTERVAL:
+                return
+            last_scan_time = now
+            pending: list[str] = []
+            try:
+                for p in scratchpad.iterdir():
+                    if p.name.startswith("_") or p.name in known_artifacts:
+                        continue
+                    known_artifacts.add(p.name)
+                    pending.append(p.name)
+                    if protected_patterns and _matches_any_pattern(
+                        p.name, list(protected_patterns)
+                    ):
+                        # F7: depth's chain/synthesis writes are benign
+                        # post-completion overruns — quarantine post-run
+                        # rather than killing the PTY subprocess mid-run.
+                        # Mirrors the headless _wait_with_heartbeat branch.
+                        if (
+                            phase.name == "depth"
+                            and _is_benign_depth_foreign_artifact(p.name)
+                        ):
+                            log.warning(
+                                f"[{phase.name}] foreign-artifact leak "
+                                f"(benign, will quarantine post-run): "
+                                f"{p.name}"
+                            )
+                        else:
+                            display._clear_spinner()
+                            log.error(
+                                f"[{phase.name}] live containment abort: "
+                                f"protected downstream artifact appeared: {p.name}"
+                            )
+                            raise _PtyStop(-4)
+            except _PtyStop:
+                raise
+            except Exception:
+                pass
+            if pending:
+                display.print_phase_heartbeat(
+                    phase.name, elapsed, new_artifacts=pending
+                )
+                last_status_time = now
+            elif now - last_status_time >= 300:
+                mins, secs = divmod(elapsed, 60)
+                display.print_phase_heartbeat(phase.name, elapsed)
+                log.info(
+                    f"[{phase.name}] {mins}:{secs:02d} | waiting "
+                    f"(pty transcript lines={getattr(_state, 'line_count', 0)})"
+                )
+                last_status_time = now
+
+        with log_path.open("w", encoding="utf-8", errors="replace") as out:
+            session = ClaudePtySession(
+                cmd,
+                cwd=config["project_root"],
+                env=subprocess_env,
+                session_id=session_id,
+                prompt_path=snap,
+                log_file=out,
+            )
+            try:
+                out.write(f"CLAUDE_TRANSCRIPT={session.transcript_path}\n")
+                out.flush()
+                session.spawn()
+                session.send_bootstrap()
+                state = session.wait_for_turn_complete(
+                    timeout,
+                    quiescence_s=float(config.get("claude_pty_quiescence_s", 8)),
+                    on_poll=_pty_poll,
+                )
+                process_exited = not session.is_alive()
+                if state.rate_limited:
+                    rc = 1
+                elif state.complete:
+                    rc = 0
+                elif process_exited:
+                    rc = 0
+                else:
+                    log.warning(f"[{phase.name}] timed out after {timeout}s")
+                    rc = -2
+            except _PtyStop as stop:
+                rc = stop.rc
+            except Exception as e:
+                log.error(f"[{phase.name}] PTY spawn/wait failed: {e}")
+                try:
+                    out.write(f"PTY failed before phase completion: {e}\n")
+                    out.flush()
+                except Exception:
+                    pass
+                rc = EXIT_ERROR
+            finally:
+                session.terminate(grace_s=8)
+                display._clear_spinner()
+                try:
+                    if session.transcript_path.exists():
+                        out.write("\n\n# Claude session transcript tail\n")
+                        with session.transcript_path.open(
+                            "rb"
+                        ) as tf:
+                            tf.seek(0, 2)
+                            size = tf.tell()
+                            tf.seek(max(0, size - 65536))
+                            out.write(tf.read().decode("utf-8", errors="replace"))
+                        out.flush()
+                except Exception:
+                    pass
+
+        try:
+            canonical.write_bytes(log_path.read_bytes())
+        except Exception:
+            pass
+
+        duration = time.time() - start
+        log.info(f"[{phase.name}] PTY turn completed rc={rc} after {duration:.0f}s")
+        transcript_for_cost = session.transcript_path if session.transcript_path.exists() else log_path
+        _record_phase_cost(
+            scratchpad, phase.name, effective_model, attempt,
+            transcript_for_cost, duration, backend="claude-pty",
+        )
+        return rc
 
     with log_path.open("w", encoding="utf-8", errors="replace") as out, \
             snap.open("rb") as stdin_file:
@@ -2441,6 +3515,22 @@ def run_phase(phase: Phase, config: dict, attempt: int) -> int:
     log.info(f"[{phase.name}] subprocess exited rc={rc} after {duration:.0f}s")
     _record_phase_cost(scratchpad, phase.name, effective_model, attempt,
                         log_path, duration, backend=backend)
+    # v2.0.3 (A2 + A4): write orphan diagnostic and archive stub files if
+    # the header-only orphan-background fingerprint is detected. Diagnostic
+    # is read by the retry-hint dispatcher (A4); does NOT affect gate
+    # pass/fail (substance gate from Stage 1.5 is the authority).
+    try:
+        diag = detect_background_orphan(
+            log_path, scratchpad, phase.name,
+            config.get("mode", "core"),
+            config.get("pipeline", "sc"),
+            rc, backend=backend,
+            project_root=config.get("project_root"),
+        )
+        if diag:
+            _archive_orphan_stubs(scratchpad, phase.name, diag)
+    except Exception as e:
+        log.debug(f"[{phase.name}] orphan diagnostic skipped: {e}")
     return rc
 
 
@@ -2512,6 +3602,34 @@ def _existing_later_phase_artifacts(
     return []
 
 
+# F7: depth-phase benign foreign-artifact patterns. Centralized so the
+# post-run classifier (`_split_nonblocking_foreign_writes`) and the two
+# live-containment ticks (`_wait_with_heartbeat` headless path + PTY tick)
+# share a single source of truth. Chain/synthesis writes from a depth
+# subprocess that finishes its own work and "naturally continues" into
+# Phase 4c are quarantined post-run; live ticks must NOT kill the
+# subprocess for these. Far-downstream artifacts (verify/report) stay
+# blocking — a depth phase writing those is a worse boundary breach.
+_DEPTH_BENIGN_FOREIGN_PATTERNS = (
+    "hypotheses.md",
+    "finding_mapping.md",
+    "enabler_results.md",
+    "chain_*.md",
+    "synthesis_*.md",
+    "composition_coverage.md",
+)
+
+
+def _is_benign_depth_foreign_artifact(name: str) -> bool:
+    """F7: True iff `name` is one of depth's benign chain/synthesis leaks.
+
+    Used by both post-run quarantine (`_split_nonblocking_foreign_writes`)
+    and the live `rc=-4` abort ticks to keep the policy consistent.
+    """
+    from fnmatch import fnmatch
+    return any(fnmatch(name, pat) for pat in _DEPTH_BENIGN_FOREIGN_PATTERNS)
+
+
 def _split_nonblocking_foreign_writes(
     phase_name: str,
     foreign_writes: list[str],
@@ -2528,6 +3646,34 @@ def _split_nonblocking_foreign_writes(
                 or fnmatch(name, "report_medium*.md")
                 or fnmatch(name, "report_low_info*.md")
             ):
+                benign.append(name)
+            else:
+                blocking.append(name)
+        return benign, blocking
+    if phase_name == "depth":
+        # S1.2 + F7: chain/synthesis writes are benign-quarantine. The
+        # depth-owned gate alone decides pass/fail. Source of truth is the
+        # centralized helper above so the two live ticks stay in sync.
+        for name in foreign_writes:
+            if _is_benign_depth_foreign_artifact(name):
+                benign.append(name)
+            else:
+                blocking.append(name)
+        return benign, blocking
+    if phase_name.startswith("inventory_chunk_"):
+        # v2.0.4 (A'1): inventory tactical containment. When chunk_a's LLM
+        # overruns and writes sibling chunk outputs OR the downstream merge
+        # OR the next-phase semantic_invariants.md, those are benign — the
+        # chunk_a-owned gate alone decides pass/fail. Sibling outputs may
+        # also be ADOPTED post-quarantine via _try_adopt_inventory_sibling
+        # (A'2), but adoption happens after this classification step.
+        benign_pats = (
+            "findings_inventory_chunk_*.md",  # sibling chunks
+            "findings_inventory.md",          # downstream merge phase
+            "semantic_invariants.md",         # Phase 4a.5 (invariants)
+        )
+        for name in foreign_writes:
+            if any(fnmatch(name, p) for p in benign_pats):
                 benign.append(name)
             else:
                 blocking.append(name)
@@ -2701,19 +3847,39 @@ def _run_phase_validators(
         benign_foreign, blocking_foreign = _split_nonblocking_foreign_writes(
             phase.name, foreign_writes
         )
+        # v2.0.4 (A'2) / Codex Round-2 Claim 12: attempt sibling adoption
+        # BEFORE quarantine moves files to _overflow/. Inventory-scoped only
+        # in A'; Phase C generalizes via declarative Phase.adoptable_outputs.
+        adopted_foreign: list[str] = []
+        if phase.name.startswith("inventory_chunk_"):
+            for name in list(benign_foreign):
+                if _try_adopt_inventory_sibling(
+                    scratchpad, config["project_root"], phase.name, name
+                ):
+                    adopted_foreign.append(name)
+        # Quarantine everything EXCEPT adopted files (adopted files stay
+        # in the scratchpad root at their expected names for the owning
+        # phase's resumption protocol to consume).
+        quarantine_targets = [f for f in foreign_writes if f not in adopted_foreign]
         moved_foreign = _quarantine_foreign_phase_writes(
             scratchpad, config["project_root"], phase.name,
-            foreign_writes
+            quarantine_targets
         )
         if moved_foreign:
             log.warning(
                 f"[{phase.name}] quarantined foreign later-phase "
                 f"artifact(s): {moved_foreign[:10]}"
             )
-        if benign_foreign:
+        if adopted_foreign:
+            log.warning(
+                f"[{phase.name}] adopted sibling artifact(s) "
+                f"(kept in place, provenance recorded): {adopted_foreign[:10]}"
+            )
+        remaining_benign = [f for f in benign_foreign if f not in adopted_foreign]
+        if remaining_benign:
             log.warning(
                 f"[{phase.name}] quarantined non-blocking future-phase "
-                f"artifact(s): {benign_foreign[:10]}"
+                f"artifact(s): {remaining_benign[:10]}"
             )
         if blocking_foreign:
             passed = False
@@ -2820,7 +3986,27 @@ def _run_phase_validators(
                 if hint:
                     _write_retry_hint(scratchpad, phase.name, hint)
         # Phase E2: report_index rejects unverified queue rows.
+        # Same self-heal pattern as the dropouts repair above. When the
+        # LLM downgrades a finding silently (no Trust Adj. reason), the
+        # driver auto-tags the row as UNRESOLVED(<upstream>) — a
+        # canonical Trust Adj. token the validator accepts. Audit
+        # completes; the override is recorded in severity_overrides.md
+        # and surfaced in the final report appendix for human triage.
+        # Severity INFLATION (LLM put higher than upstream) is NOT
+        # auto-corrected — that case stays a hard fail because the risk
+        # profile differs (over-flagging vs. under-flagging).
         idx_in = _validate_report_index_inputs(scratchpad)
+        if idx_in:
+            sev_repairs = _repair_report_index_severity_provenance(scratchpad)
+            if sev_repairs:
+                applied = [r for r in sev_repairs if r.get("action", "").startswith("applied")]
+                if applied:
+                    log.info(
+                        f"[report_index] auto-tagged {len(applied)} severity "
+                        f"downgrade(s) as UNRESOLVED(<upstream>); see "
+                        f"severity_overrides.md for the ledger"
+                    )
+                idx_in = _validate_report_index_inputs(scratchpad)
         if idx_in:
             passed = False
             missing = list(missing) + idx_in
@@ -2831,6 +4017,25 @@ def _run_phase_validators(
         if coverage_issues:
             passed = False
             missing = list(missing) + coverage_issues
+        # T1-b: reject phantom UNRESOLVED stamps (verifier CONTESTED
+        # mislabeled as Skeptic-Judge UNRESOLVED) at the index stage so it
+        # is a clean retry, not a late report_assemble degrade.
+        unresolved_auth = _check_report_index_unresolved_authenticity(scratchpad)
+        if unresolved_auth:
+            passed = False
+            missing = list(missing) + unresolved_auth
+            hint = _generate_report_index_retry_hint(unresolved_auth)
+            if hint:
+                _write_retry_hint(scratchpad, phase.name, hint)
+        # T2-c: WARNING-class observability for surviving unverified
+        # Critical chains (STEP 1 rule 8 should have capped them at High).
+        try:
+            spec_crit = _check_speculative_critical_chains(scratchpad)
+        except Exception as exc:
+            log.warning(f"[{phase.name}] speculative-critical check skipped: {exc}")
+            spec_crit = []
+        for w in spec_crit:
+            log.warning(f"[{phase.name}] {w}")
 
     # --- report_assemble: quality gate + degraded sentinel check ---
     if phase.name == "report_assemble" and passed:
@@ -2896,6 +4101,31 @@ def _run_phase_validators(
                     f.write(f"- {w}\n")
                 f.write("\n")
             log.info(f"[{phase.name}] PoC attempt coverage: {len(poc_warnings)} warning(s) logged to violations.md")
+        # T2-a: verifier skip-vocabulary audit (WARNING-class — never blocks).
+        try:
+            skip_warnings = _validate_verifier_skip_vocabulary(scratchpad)
+        except Exception as exc:
+            log.warning(f"[{phase.name}] skip-vocabulary audit skipped: {exc}")
+            skip_warnings = []
+        if skip_warnings:
+            viol_path = scratchpad / "violations.md"
+            existing = ""
+            if viol_path.exists():
+                try:
+                    existing = viol_path.read_text(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
+            with open(viol_path, "a", encoding="utf-8") as f:
+                if not existing:
+                    f.write("# Pipeline Violations\n\n")
+                f.write("## Verifier Skip-Reason Audit (T2-a)\n\n")
+                for w in skip_warnings:
+                    f.write(f"- {w}\n")
+                f.write("\n")
+            log.warning(
+                f"[{phase.name}] verifier skip-vocabulary: {len(skip_warnings)} "
+                f"invalid PoC skip(s) — see verifier_skip_audit.md"
+            )
         integrity_issues = _validate_poc_pass_integrity(scratchpad)
         if integrity_issues:
             log.info(f"[{phase.name}] PoC integrity: {len(integrity_issues)} finding(s) downgraded from [POC-PASS] to [CODE-TRACE]")
@@ -2959,6 +4189,22 @@ def _run_phase_validators(
         if sk_cov:
             passed = False
             missing = list(missing) + sk_cov
+        # v2.0.5 (P0.2): write the judge_decisions.json sidecar after
+        # the skeptic phase passes its own validators. Downstream
+        # consumers (_collect_judge_unresolved_ids, _collect_judge_
+        # downgrade_map, P3 verdict_manifest, P6 report_index_candidates)
+        # prefer this canonical JSON over re-parsing the markdown.
+        if passed:
+            try:
+                from plamen_parsers import write_judge_decisions_json_sidecar
+                n_decisions = write_judge_decisions_json_sidecar(scratchpad)
+                if n_decisions:
+                    log.info(
+                        f"[skeptic] wrote judge_decisions.json with "
+                        f"{n_decisions} decisions"
+                    )
+            except Exception as e:
+                log.debug(f"[skeptic] judge_decisions.json write skipped: {e}")
 
     # --- graph_sweeps ---
     if phase.name == "graph_sweeps" and config["pipeline"] == "l1" and passed:
@@ -2987,6 +4233,118 @@ def _run_phase_validators(
                 "attention repair: " + "; ".join(ar_hard)
             ]
 
+    # --- invariants_p2 (Phase 4a.5 Pass 2) ---
+    # SOFT validator only — Pass 2 is an enrichment phase. Returns [] on
+    # all failure modes (logs warning, writes sentinel). NEVER halts.
+    if phase.name == "invariants_p2" and passed:
+        _validate_invariants_pass2(scratchpad, config.get("mode", "core"))
+
+    # --- chain_iter2 (Phase 4c iteration 2) ---
+    # Same soft-only model as invariants_p2.
+    if phase.name == "chain_iter2" and passed:
+        _validate_chain_iter2(scratchpad, config.get("mode", "core"))
+
+    # --- chain (Phase 4c Agent 1) anti-absorption hard gate -------------
+    # v2.x Fix 2: enforce phase4c-chain-prompt rule 6 mechanically.
+    # Chain Agent 1 absorbs distinct findings into super-groups (e.g. 4
+    # v2.0.6 (P2.5): consumer-backstop ID-ledger gate. WARNING-only at
+    # first ship (no halts) — flags references to unregistered IDs in
+    # downstream consumer phases. Promotes to halt-class after one
+    # fresh-audit cycle of clean telemetry per the plan's promotion path.
+    if phase.name in ("sc_verify_queue", "sc_verify_aggregate",
+                      "skeptic", "crossbatch", "report_index"):
+        try:
+            backstop_issues = _validate_consumer_ids_in_ledger(scratchpad, phase.name)
+        except Exception as exc:
+            log.debug(f"[{phase.name}] consumer-backstop skipped: {exc}")
+            backstop_issues = []
+        for w in backstop_issues:
+            log.warning(f"[{phase.name}] %s", w)
+
+    # v2.0.6 (P2.4): BLOCKING ID-ledger collision gate. Runs FIRST,
+    # unconditionally on every chain / chain_agent2 attempt (not gated on
+    # `passed`) — we MUST register IDs even when other gates failed,
+    # otherwise attempt-1-failed → attempt-2-collision is invisible
+    # (the DODO 2026-05-21 root cause).
+    if phase.name in ("chain", "chain_agent2"):
+        try:
+            attempt_n = 2 if _read_retry_hint(scratchpad, phase.name) else 1
+            ledger_collisions = _validate_id_ledger_collisions(
+                scratchpad, phase.name, attempt=attempt_n
+            )
+        except Exception as exc:
+            log.warning(
+                f"[{phase.name}] id-ledger gate skipped (non-blocking): {exc}"
+            )
+            ledger_collisions = []
+        if ledger_collisions:
+            passed = False
+            missing = list(missing) + [
+                "id-ledger collision: " + "; ".join(ledger_collisions[:3])
+                + (f" (+{len(ledger_collisions) - 3} more)"
+                   if len(ledger_collisions) > 3 else "")
+            ]
+            log.warning(
+                f"[{phase.name}] id-ledger collision: "
+                f"{len(ledger_collisions)} ID(s) re-minted with different "
+                f"content — retry hint written"
+            )
+            hint = _generate_id_ledger_collision_retry_hint(
+                ledger_collisions, phase.name
+            )
+            if hint:
+                _write_retry_hint(scratchpad, phase.name, hint)
+
+    # AccountEncoder bugs collapsed into one Medium hypothesis), which then
+    # cascade into mass exclusion when the verifier's single PoC fails.
+    # On violation, emit a retry hint and fail the gate; existing retry
+    # machinery re-spawns Chain Agent 1 with the hint. Hard cap = 1 retry:
+    # if violations persist on attempt 2, we log warning and proceed
+    # (the per-constituent demotion safety net in Fix 4 catches residuals).
+    if phase.name == "chain" and passed:
+        try:
+            aab_issues = _validate_chain_anti_absorption(
+                scratchpad, config.get("mode", "core")
+            )
+        except Exception as exc:
+            log.warning(
+                f"[{phase.name}] anti-absorption gate skipped (non-blocking): {exc}"
+            )
+            aab_issues = []
+        if aab_issues:
+            # Detect retry by checking for prior hint file. Hint is cleared
+            # by the driver after attempt 2 finishes, so its presence here
+            # means we already prompted Chain Agent 1 with the override
+            # mechanism and it still violated. Cap at 1 retry.
+            already_retried = bool(_read_retry_hint(scratchpad, phase.name))
+            if not already_retried:
+                hint = _generate_anti_absorption_retry_hint(aab_issues)
+                if hint:
+                    _write_retry_hint(scratchpad, phase.name, hint)
+                passed = False
+                missing = list(missing) + [
+                    "anti-absorption: " + "; ".join(aab_issues[:3])
+                    + (f" (+{len(aab_issues) - 3} more)" if len(aab_issues) > 3 else "")
+                ]
+                log.warning(
+                    f"[{phase.name}] anti-absorption violations: "
+                    f"{len(aab_issues)} hypothesis group(s) over-merged — "
+                    f"retry hint written"
+                )
+            else:
+                # Attempt >=2 still violating: warn and proceed (Fix 4 safety net)
+                log.warning(
+                    f"[{phase.name}] anti-absorption violations persist after "
+                    f"retry ({len(aab_issues)} group(s)) — proceeding; "
+                    f"per-constituent demotion will limit blast radius"
+                )
+
+    # --- post_verify_extract (Phase 5.5) ---
+    # Same soft-only model. Common case (zero [VER-NEW-*] observations)
+    # is a fast no-op write of an empty summary.
+    if phase.name == "post_verify_extract" and passed:
+        _validate_post_verify_extract(scratchpad, config.get("mode", "core"))
+
     # --- semantic_dedup (L1): swap deduped queue and rebuild shard manifests ---
     if phase.name == "semantic_dedup" and passed:
         deduped = scratchpad / "verification_queue_deduped.md"
@@ -3008,6 +4366,17 @@ def _run_phase_validators(
             )
         else:
             log.info("[semantic_dedup] no deduped queue produced; keeping original")
+
+    # v2.0.10 (P5): dedup decision coverage telemetry. WARNING-only for one
+    # cycle; promotes to auto-fill / halt per the plan's 3-stage path.
+    if phase.name in ("semantic_dedup", "sc_semantic_dedup"):
+        try:
+            dedup_cov = _check_dedup_decision_coverage(scratchpad)
+        except Exception as exc:
+            log.debug(f"[{phase.name}] dedup-coverage gate skipped: {exc}")
+            dedup_cov = []
+        for w in dedup_cov:
+            log.warning(f"[{phase.name}] %s", w)
 
     # --- sc_semantic_dedup (SC): swap deduped inventory before chain analysis ---
     if phase.name == "sc_semantic_dedup" and passed:
@@ -3356,9 +4725,30 @@ def _run_phase_validators(
             hint = _generate_depth_retry_hint(
                 depth_issues,
                 backend=config.get("cli_backend", "claude"),
+                scratchpad=scratchpad,
             )
             if hint:
                 _write_retry_hint(scratchpad, phase.name, hint)
+
+        # v2.x Fix 1: promote niche findings to findings_inventory.md (L1 parity
+        # with SC branch). Idempotent — see SC branch comment for rationale.
+        try:
+            parsed, appended = promote_niche_to_inventory(scratchpad)
+            if appended:
+                log.info(
+                    f"[{phase.name}] promoted {appended} niche finding(s) to "
+                    f"findings_inventory.md (parsed {parsed} total; "
+                    f"see niche_promotion_receipt.md)"
+                )
+            elif parsed:
+                log.info(
+                    f"[{phase.name}] niche promotion: {parsed} parsed, "
+                    f"0 newly appended (already promoted on prior attempt)"
+                )
+        except Exception as exc:
+            log.warning(
+                f"[{phase.name}] niche promotion skipped (non-blocking): {exc}"
+            )
 
     # --- depth (SC): full validator suite ---
     elif phase.name == "depth" and config["pipeline"] == "sc":
@@ -3396,6 +4786,17 @@ def _run_phase_validators(
             passed = False
             missing = list(missing) + [
                 "never-cut artifacts missing: " + ", ".join(never_cut_missing)
+            ]
+        # S1.1: existence-only is not enough — a 79-byte WRITE-THEN-VERIFY
+        # reservation or a SYNTHESIZED confidence stub passes the check above.
+        # Reject groups whose only present member is a stub.
+        never_cut_stubs = _validate_depth_artifact_substance(
+            scratchpad, config.get("mode", "core"), pipeline="sc"
+        )
+        if never_cut_stubs:
+            passed = False
+            missing = list(missing) + [
+                "never-cut artifacts are stubs: " + "; ".join(never_cut_stubs)
             ]
         # v2.4.7: L1 checkpoint validator removed from SC gate — SC prompt
         # writes checkpoint_postdepth.md (not the L1 filename), and the
@@ -3511,9 +4912,34 @@ def _run_phase_validators(
             hint = _generate_depth_retry_hint(
                 depth_issues,
                 backend=config.get("cli_backend", "claude"),
+                scratchpad=scratchpad,
             )
             if hint:
                 _write_retry_hint(scratchpad, phase.name, hint)
+
+        # v2.x Fix 1: promote niche findings to findings_inventory.md.
+        # Niche agents run during depth iter 1 but write to niche_*_findings.md
+        # only. Without this promotion, niche findings reach chain analysis via
+        # chain_summaries_compact.md but never enter findings_inventory.md and
+        # are silently excluded from verification_queue.md.
+        # Idempotent: safe across retries (tracked via niche_promotion_receipt).
+        try:
+            parsed, appended = promote_niche_to_inventory(scratchpad)
+            if appended:
+                log.info(
+                    f"[{phase.name}] promoted {appended} niche finding(s) to "
+                    f"findings_inventory.md (parsed {parsed} total; "
+                    f"see niche_promotion_receipt.md)"
+                )
+            elif parsed:
+                log.info(
+                    f"[{phase.name}] niche promotion: {parsed} parsed, "
+                    f"0 newly appended (already promoted on prior attempt)"
+                )
+        except Exception as exc:
+            log.warning(
+                f"[{phase.name}] niche promotion skipped (non-blocking): {exc}"
+            )
 
     # --- late containment check removed (v2.6.2) ---
     # The early containment check (line ~1694) already detects all LLM-written
@@ -3522,6 +4948,46 @@ def _run_phase_validators(
     # on files legitimately written by the driver's own Python post-processing
     # (e.g., ensure_verify_shard_manifests in semantic_dedup/verify_queue).
     # Quarantine of LLM-written foreign files is handled by the early check.
+
+    # --- Obligation + attention gates (Steps 5-8 of recall-recovery plan) ---
+    # All four are WARNING-class for the first ship. They scan the relevant
+    # output, snapshot any gap to a *_gap.md artifact for observation, and
+    # log to a non-blocking warning. No `passed` flip, no halt. Promotion to
+    # FAIL is a separate decision after one observed audit cycle.
+    if phase.name == "breadth":
+        opengrep_issues = _check_opengrep_obligation_coverage(
+            scratchpad, config.get("mode", "core")
+        )
+        if opengrep_issues:
+            log.warning(
+                "[breadth] opengrep obligation (non-blocking): %s",
+                "; ".join(opengrep_issues),
+            )
+    if phase.name == "depth":
+        fs_issues = _check_function_summary_obligation(
+            scratchpad, config.get("mode", "core")
+        )
+        if fs_issues:
+            log.warning(
+                "[depth] function_summary obligation (non-blocking): %s",
+                "; ".join(fs_issues),
+            )
+        pert_issues = _check_perturbation_block_per_finding(scratchpad)
+        if pert_issues:
+            log.warning(
+                "[depth] perturbation block (non-blocking): %s",
+                "; ".join(pert_issues),
+            )
+        # PDE check on niche output runs at depth-phase completion because
+        # niche-semantic-consistency typically runs in parallel with depth
+        # iter-1 and its output is available by the time depth's validators
+        # fire. Vacuous-pass when the niche file is absent.
+        pde_issues = _check_pde_section_present(scratchpad)
+        if pde_issues:
+            log.warning(
+                "[depth] PDE niche (non-blocking): %s",
+                "; ".join(pde_issues),
+            )
 
     return passed, missing
 
@@ -4078,6 +5544,28 @@ def main():
                 f"[chain] wrote deterministic handoff scaffold before "
                 f"Chain Agent 1 subprocess: {written}"
             )
+            # Chain Phase Bounding: mechanical pre-pass that turns the chain
+            # agents' unbounded "exhaustively enumerate" tasks into finite
+            # candidate sets — chain_candidate_pairs.md (bounds Agent 2 PHASE
+            # 2), variable_finding_map.md, and a STEP 0a baseline in
+            # enabler_results.md (bounds Agent 1 PHASE 0). Best-effort: a
+            # producer failure leaves the passthrough scaffold above intact,
+            # and the chain prompts fall back to their unbounded path — no
+            # halt. Runs AFTER _write_chain_passthrough_outputs so the stub
+            # enabler_results.md is the safety net if compute_enabler_baseline
+            # raises.
+            try:
+                import importlib
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).parent))
+                _cp = importlib.import_module("chain_prep")
+                _cp_summary = _cp.run_chain_prep(scratchpad)
+                log.info(f"[chain] chain_prep: {_cp_summary}")
+            except Exception as _cp_exc:
+                log.warning(
+                    f"[chain] chain_prep skipped (non-blocking): {_cp_exc} — "
+                    "chain agents fall back to unbounded path"
+                )
 
         if config["pipeline"] == "l1" and phase.name == "verify_queue":
             promoted = _promote_depth_findings_to_inventory(scratchpad)
@@ -4478,6 +5966,45 @@ def main():
                 )
                 continue
 
+        # v2.8.8: chain_iter2 pre-spawn skip. If composition_coverage.md
+        # reports zero unexplored cross-class Medium+ pairs, the
+        # iteration-2 agent has nothing to do — skip the LLM spawn
+        # entirely, write a deterministic empty-iteration note, mark
+        # complete. Per rules/phase4c-chain-prompt.md ITERATIVE_CHAIN_COMPOSITION:
+        # "If Agent 2 reported 0 new chains AND 0 unexplored cross-class
+        # Medium+ pairs → skip iteration 2."
+        if phase.name == "chain_iter2":
+            if _chain_iter2_has_no_unexplored_pairs(scratchpad):
+                # Write a deterministic note so the artifact gate sees
+                # output and the validator sees an authentic empty state.
+                try:
+                    (scratchpad / "chain_iteration2.md").write_text(
+                        "# Chain Iteration 2 Results\n\n"
+                        "_No unexplored cross-class Medium+ pairs remaining "
+                        "after Phase 4c Agent 2. Skipped iteration 2 LLM "
+                        "spawn per ITERATIVE_CHAIN_COMPOSITION early-exit "
+                        "rule._\n\n"
+                        "- Pairs evaluated: 0\n"
+                        "- New chains identified: 0\n"
+                        "- Skip reason: composition_coverage.md reports 0 "
+                        "unexplored cross-class Medium+ rows.\n",
+                        encoding="utf-8",
+                    )
+                except OSError:
+                    pass
+                checkpoint.mark_completed(phase.name)
+                checkpoint.clear_degraded_sentinel(scratchpad, phase.name)
+                checkpoint.save(scratchpad)
+                log.info(
+                    f"[{phase.name}] N/A — composition coverage has 0 "
+                    "unexplored cross-class Medium+ pairs; skipping spawn"
+                )
+                display.print_phase_skipped(
+                    phase_idx + 1, total_active, phase.name,
+                    "N/A (no unexplored cross-class Medium+ pairs)",
+                )
+                continue
+
         # Phase E11: existing tier phases are deterministic confirmation
         # handlers. Body-writer phase is the prose author; this handler
         # only confirms the body-writer output is on disk and validates,
@@ -4720,6 +6247,90 @@ def main():
                     f"[crossbatch] manifest prepared with {len(rows)} "
                     "verifier ID(s)"
                 )
+
+        # Phase 5b: Mechanical PoC verification (Python-native, ON by default).
+        # Same shape as report_assemble: driver invokes a Python function,
+        # marks the phase completed on success, writes a degraded sentinel
+        # (WARNING — not HALT) on failure. No LLM cost — the phase is pure
+        # subprocess invocation of the existing PoC tests. Toolchain-missing
+        # short-circuits gracefully (preserves LLM tags). Opt-out via
+        # MECHANICAL_VERIFY=false env or config["mechanical_verify"]=False.
+        if phase.name in ("sc_mechanical_verify", "mechanical_verify"):
+            _mv_env = os.environ.get("MECHANICAL_VERIFY", "").lower()
+            _mv_cfg = config.get("mechanical_verify")
+            # Default ON. Explicit opt-out via env or config disables.
+            disabled = (
+                _mv_env in ("0", "false", "no", "off")
+                or _mv_cfg is False
+            )
+            if disabled:
+                # Phase is explicitly opted out — mark completed with a no-op
+                # sentinel so the pipeline continues without halting on the
+                # absent manifest.
+                (scratchpad / "mechanical_verify_manifest.md").write_text(
+                    "# Mechanical Verify Manifest\n\n"
+                    "**Status**: SKIPPED — explicitly disabled.\n"
+                    "Re-enable by unsetting `MECHANICAL_VERIFY` env "
+                    "(default is ON) or `config['mechanical_verify']=True`.\n",
+                    encoding="utf-8",
+                )
+                checkpoint.mark_completed(phase.name)
+                checkpoint.clear_degraded_sentinel(scratchpad, phase.name)
+                checkpoint.save(scratchpad)
+                display.print_phase_skipped(
+                    phase_idx + 1, total_active, phase.name,
+                    "disabled (MECHANICAL_VERIFY=false)",
+                )
+                continue
+
+            try:
+                import importlib
+                import sys as _sys
+                _sys.path.insert(0, str(Path(__file__).parent))
+                _mv = importlib.import_module("mechanical_verify")
+                summary = _mv.run_phase5b_mechanical_verify(
+                    scratchpad,
+                    Path(config["project_root"]),
+                    config.get("language", ""),
+                )
+                ok = summary.get("status") in ("ok", "no_verify_files",
+                                                "toolchain_unavailable")
+                log.info(
+                    f"[{phase.name}] status={summary.get('status')} "
+                    f"counts={summary.get('counts')} "
+                    f"annotated={summary.get('files_annotated')} "
+                    f"elapsed={summary.get('elapsed_s', 0):.1f}s"
+                )
+            except Exception as _exc:
+                ok = False
+                log.error(f"[{phase.name}] phase raised: {_exc}")
+                summary = {"status": "error", "error": str(_exc)}
+            if ok:
+                checkpoint.mark_completed(phase.name)
+                checkpoint.clear_degraded_sentinel(scratchpad, phase.name)
+                checkpoint.save(scratchpad)
+                display.print_phase_skipped(
+                    phase_idx + 1, total_active, phase.name,
+                    f"mechanical ({summary.get('status', 'ok')})",
+                )
+            else:
+                # WARNING — write degraded sentinel, do NOT halt. Downstream
+                # phases continue with LLM-self-tagged evidence.
+                (scratchpad / f"{phase.name}.degraded").write_text(
+                    f"Phase {phase.name} reported {summary}.\n"
+                    f"Timestamp: {time.strftime('%Y-%m-%dT%H:%M:%S')}\n"
+                    "Pipeline continues with LLM-tagged evidence; "
+                    "no halt because mechanical verify is advisory.\n",
+                    encoding="utf-8",
+                )
+                if phase.name not in checkpoint.degraded:
+                    checkpoint.degraded.append(phase.name)
+                    checkpoint.save(scratchpad)
+                display.print_phase_skipped(
+                    phase_idx + 1, total_active, phase.name,
+                    f"degraded ({summary.get('status', 'error')})",
+                )
+            continue
 
         # v2.3.11: report_assemble is Python-native. The prior LLM-driven
         # phase thrashed for 1+ hour on 225KB of tier-file concatenation.
@@ -5350,7 +6961,39 @@ def main():
                 file_state_before = _snapshot_file_state(
                     scratchpad, config["project_root"]
                 )
-                rc = run_phase(phase, config, attempt=2)
+                # Rate-limit-retry savings guard. If attempt 1 already
+                # produced all expected_artifacts (the 429 hit during
+                # streaming AFTER the writes landed — common for rescan
+                # and inventory-class phases that finalize their files
+                # before end-of-turn), skipping the spawn saves the full
+                # phase cost (~$10-12 for sonnet rescan on a Thorough
+                # audit). Mirrors the artifact-recovery gate at
+                # `_recov_passed` above, but localized to the rate-limit
+                # retry path which previously spawned unconditionally.
+                _rl_pre_passed, _rl_pre_missing = gate_passes(
+                    scratchpad, config["project_root"], phase
+                )
+                # Savings guard disabled for append-phase: expected_artifacts
+                # exist on disk because an EARLIER phase wrote them. The gate
+                # passing does NOT mean this phase did its work. Always retry.
+                if (
+                    _rl_pre_passed
+                    and phase.expected_artifacts
+                    and not getattr(phase, "appends_existing_artifact", False)
+                ):
+                    log.info(
+                        f"[{phase.name}] rate-limited but attempt 1 already "
+                        f"produced all expected_artifacts -- skipping retry "
+                        f"spawn (saves a full {phase.name} re-run)"
+                    )
+                    rc = 0
+                else:
+                    if getattr(phase, "appends_existing_artifact", False):
+                        log.info(
+                            f"[{phase.name}] rate-limited; appends-existing "
+                            f"phase, savings guard bypassed -- spawning retry"
+                        )
+                    rc = run_phase(phase, config, attempt=2)
                 if rc == -3:
                     checkpoint.save(scratchpad)
                     display.graceful_stop.requested = False
@@ -5699,7 +7342,21 @@ def main():
                 file_state_before = _snapshot_file_state(
                     scratchpad, config["project_root"]
                 )
-                rc = run_phase(phase, config, attempt=3)
+                # Same savings guard as the attempt-2 rate-limit path.
+                # By attempt 3 the artifacts may have accumulated across
+                # earlier tries; if the gate is now satisfied we don't
+                # need to re-spawn.
+                _rl3_pre_passed, _rl3_pre_missing = gate_passes(
+                    scratchpad, config["project_root"], phase
+                )
+                if _rl3_pre_passed and phase.expected_artifacts:
+                    log.info(
+                        f"[{phase.name}] attempt-3 rate-limit retry skipped: "
+                        f"prior attempts already produced expected_artifacts"
+                    )
+                    rc = 0
+                else:
+                    rc = run_phase(phase, config, attempt=3)
                 retry_rate_limit_consumed = True
                 if rc == -3:
                     checkpoint.save(scratchpad)
@@ -5784,7 +7441,20 @@ def main():
 
             if not passed:
                 log.error(f"[{phase.name}] degraded after 2 attempts: missing {missing}")
-                display.print_phase_degraded(phase.name, list(missing), critical=phase.critical)
+                # F3: suppress the red `! HALT ... pipeline halted` panel for
+                # the depth path when S1.6 will recover. Without this gate
+                # the panel prints BEFORE the depth branch overrides the
+                # halt, producing the misleading "HALT that didn't halt".
+                # Genuine halts (depth core absent, non-depth criticals)
+                # still print the panel via their own call sites below.
+                _is_depth_recoverable = (
+                    phase.name == "depth"
+                    and _depth_core_artifacts_present(scratchpad)
+                )
+                display.print_phase_degraded(
+                    phase.name, list(missing),
+                    critical=phase.critical and not _is_depth_recoverable,
+                )
                 # v2.3.14: restore quarantined artifacts — stale content
                 # is better than nothing for downstream phases.
                 _TIER_PLACEHOLDER_MAP = {
@@ -5844,7 +7514,80 @@ def main():
                         f"on critical phase - halting"
                     )
                     sys.exit(EXIT_DEGRADED)
-                if phase.critical:
+                if phase.name == "depth":
+                    # S1.5 + S1.6: the depth phase never halts the pipeline on
+                    # a tail-artifact gap. Core findings absent -> genuine
+                    # catastrophic depth failure -> halt. Core present -> one
+                    # targeted repair attempt (S1.5); if gaps still remain,
+                    # degrade-and-continue (S1.6) -- chain analysis works on
+                    # the core findings.
+                    if not _depth_core_artifacts_present(scratchpad):
+                        log.error(
+                            "[depth] core findings absent after 2 attempts "
+                            "(4 depth_*_findings.md + 3 blind_spot_* not all "
+                            "substantive) - halting; depth produced no usable "
+                            "input for downstream phases"
+                        )
+                        display.print_phase_degraded(
+                            phase.name, list(missing), critical=True
+                        )
+                        display.print_failure_diagnosis(
+                            phase.name, str(scratchpad), list(missing), config,
+                        )
+                        sys.exit(EXIT_DEGRADED)
+                    log.warning(
+                        "[depth] degraded after 2 attempts but core findings "
+                        f"are present - running one targeted repair attempt. "
+                        f"Gaps: {missing}"
+                    )
+                    _write_retry_hint(
+                        scratchpad, phase.name,
+                        _generate_depth_repair_hint(list(missing)),
+                    )
+                    repair_state_before = _snapshot_file_state(
+                        scratchpad, config["project_root"]
+                    )
+                    rc = run_phase(phase, config, attempt=3)
+                    if rc == -3:
+                        checkpoint.save(scratchpad)
+                        display.graceful_stop.requested = False
+                        _halted = True
+                        break
+                    passed_r, missing_r = _run_phase_validators(
+                        phase, config, scratchpad, phases, rc,
+                        repair_state_before, 0,
+                    )
+                    if passed_r:
+                        _clear_retry_hint(scratchpad, phase.name)
+                        _cleanup_quarantine_backups(scratchpad, phase)
+                        if phase.name in checkpoint.degraded:
+                            checkpoint.degraded.remove(phase.name)
+                        checkpoint.save(scratchpad)
+                        # fall through to mark_completed below
+                    else:
+                        log.warning(
+                            "[depth] tail-artifact gaps remain after the "
+                            f"repair attempt ({missing_r}) - degrading and "
+                            "continuing the pipeline; chain analysis proceeds "
+                            "on the core depth findings"
+                        )
+                        _clear_retry_hint(scratchpad, phase.name)
+                        try:
+                            with (scratchpad / "violations.md").open(
+                                "a", encoding="utf-8"
+                            ) as _vf:
+                                _vf.write(
+                                    "\n## depth degrade-not-halt (S1.6)\n"
+                                    "- core findings present; unrecovered "
+                                    f"tail gaps: {missing_r}\n"
+                                )
+                        except Exception:
+                            pass
+                        if phase.name not in checkpoint.degraded:
+                            checkpoint.degraded.append(phase.name)
+                        checkpoint.save(scratchpad)
+                        continue
+                elif phase.critical:
                     log.error(
                         f"[{phase.name}] is "
                         f"{'phase-containment-failed' if containment_failure else 'CRITICAL'}. "
