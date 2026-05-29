@@ -3283,6 +3283,13 @@ def _build_body_writer_manifests(scratchpad: Path) -> dict[str, dict]:
     try:
         out_dir.mkdir(exist_ok=True)
         for old in out_dir.glob("report_*.json"):
+            # Preserve authentic empty-tier sidecars (report_*.empty.json).
+            # Their stem (e.g. "report_critical_high.empty") is never a
+            # manifest key, so the unconditional cleanup below would delete
+            # the sidecar that _maybe_skip_empty_body_writer just wrote,
+            # making the legacy-tier validator fail closed on clean tiers.
+            if old.name.endswith(".empty.json"):
+                continue
             if old.stem not in manifests:
                 try:
                     old.unlink()
@@ -3649,6 +3656,13 @@ def _build_sc_body_writer_manifests(scratchpad: Path) -> dict[str, dict]:
     try:
         out_dir.mkdir(exist_ok=True)
         for old in out_dir.glob("report_*.json"):
+            # Preserve authentic empty-tier sidecars (report_*.empty.json).
+            # Their stem (e.g. "report_critical_high.empty") is never a
+            # manifest key, so the unconditional cleanup below would delete
+            # the sidecar that _maybe_skip_empty_body_writer just wrote,
+            # making the legacy-tier validator fail closed on clean tiers.
+            if old.name.endswith(".empty.json"):
+                continue
             if old.stem not in manifests:
                 try:
                     old.unlink()
